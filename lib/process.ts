@@ -83,6 +83,21 @@ function buildOrientedCanvas(
   return canvas;
 }
 
+/**
+ * Effective source size after crop + 90/270 rotation swap — i.e. the dimensions
+ * the resize math actually operates on. Used for the live "New size" readout.
+ */
+export function effectiveSourceSize(
+  srcW: number,
+  srcH: number,
+  s: ProcessSettings
+): { width: number; height: number } {
+  const cw = s.crop ? s.crop.width : srcW;
+  const ch = s.crop ? s.crop.height : srcH;
+  const swap = s.rotation === 90 || s.rotation === 270;
+  return { width: swap ? ch : cw, height: swap ? cw : ch };
+}
+
 /** Compute output dimensions from the (already cropped/oriented) source size. */
 export function computeDimensions(
   srcW: number,
@@ -217,13 +232,25 @@ export function makeThumbnail(
   return canvas.toDataURL("image/png");
 }
 
-/** Full-resolution PNG object URL of the source — used by the crop tool. */
+/**
+ * PNG object URL of the source for display (crop editor / compare view).
+ * Optionally downscaled to `maxSize` (longest edge) for performance on big images.
+ * Returns the object URL plus `scale` = factor to map display pixels back to
+ * full-resolution source pixels (multiply display coords by `scale`).
+ */
 export function sourceToDisplayUrl(
   source: CanvasImageSource,
   srcW: number,
-  srcH: number
-): Promise<string> {
-  const canvas = makeCanvas(srcW, srcH);
-  get2d(canvas).drawImage(source, 0, 0);
-  return toBlob(canvas, "image/png").then((b) => URL.createObjectURL(b));
+  srcH: number,
+  maxSize?: number
+): Promise<{ url: string; scale: number }> {
+  const r = maxSize ? Math.min(1, maxSize / Math.max(srcW, srcH)) : 1;
+  const w = Math.max(1, Math.round(srcW * r));
+  const h = Math.max(1, Math.round(srcH * r));
+  const canvas = makeCanvas(w, h);
+  get2d(canvas).drawImage(source, 0, 0, w, h);
+  return toBlob(canvas, "image/png").then((b) => ({
+    url: URL.createObjectURL(b),
+    scale: srcW / w,
+  }));
 }

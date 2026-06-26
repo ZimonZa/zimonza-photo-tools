@@ -33,45 +33,47 @@ export function FileQueue() {
         {items.map((item) => {
           const active = item.id === selectedId;
           return (
-            <button
+            <div
               key={item.id}
-              type="button"
-              onClick={() => select(item.id)}
-              title={item.name}
               className={cn(
                 "group relative aspect-square overflow-hidden rounded-xl border bg-muted transition-all",
                 active ? "border-accent ring-2 ring-accent/40" : "border-border hover:border-accent/50"
               )}
             >
-              {item.status === "ready" && item.thumbUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={item.thumbUrl}
-                  alt={item.name}
-                  className="checkerboard h-full w-full object-cover"
-                />
-              ) : item.status === "error" ? (
-                <span className="flex h-full w-full items-center justify-center text-red-500">
-                  <AlertCircle className="h-5 w-5" />
-                </span>
-              ) : (
-                <span className="flex h-full w-full items-center justify-center text-muted-foreground">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                </span>
-              )}
+              <button
+                type="button"
+                onClick={() => select(item.id)}
+                title={item.name}
+                aria-label={`Select ${item.name}`}
+                className="block h-full w-full"
+              >
+                {item.status === "ready" && item.thumbUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={item.thumbUrl}
+                    alt={item.name}
+                    className="checkerboard h-full w-full object-cover"
+                  />
+                ) : item.status === "error" ? (
+                  <span className="flex h-full w-full items-center justify-center text-red-500">
+                    <AlertCircle className="h-5 w-5" />
+                  </span>
+                ) : (
+                  <span className="flex h-full w-full items-center justify-center text-muted-foreground">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  </span>
+                )}
+              </button>
 
-              <span
-                role="button"
-                tabIndex={-1}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  removeItem(item.id);
-                }}
-                className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 transition-opacity group-hover:opacity-100"
+              <button
+                type="button"
+                onClick={() => removeItem(item.id)}
+                aria-label={`Remove ${item.name}`}
+                className="absolute right-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 transition-opacity hover:bg-background focus-visible:opacity-100 group-hover:opacity-100"
               >
                 <X className="h-3 w-3" />
-              </span>
-            </button>
+              </button>
+            </div>
           );
         })}
       </div>

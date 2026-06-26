@@ -39,7 +39,7 @@ export function PreviewCanvas({
 
   async function ensureOriginal() {
     if (!originalUrl && item.source && item.width && item.height) {
-      const url = await sourceToDisplayUrl(item.source, item.width, item.height);
+      const { url } = await sourceToDisplayUrl(item.source, item.width, item.height, 2000);
       setOriginalUrl(url);
     }
   }

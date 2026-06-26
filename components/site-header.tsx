@@ -20,6 +20,7 @@ export function SiteHeader() {
           <span className="hidden sm:inline">ZimonZa Photo Tools</span>
         </Link>
 
+        {/* Desktop nav */}
         <nav className="hidden flex-1 items-center gap-1 md:flex">
           {TOOLS.map((tool) => {
             const active = pathname === tool.href;
@@ -44,6 +45,30 @@ export function SiteHeader() {
           <ThemeToggle />
         </div>
       </div>
+
+      {/* Mobile nav — scrollable pill row */}
+      <nav
+        aria-label="Tools"
+        className="flex gap-1.5 overflow-x-auto border-t border-border px-4 py-2 md:hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {TOOLS.map((tool) => {
+          const active = pathname === tool.href;
+          return (
+            <Link
+              key={tool.href}
+              href={tool.href}
+              className={cn(
+                "whitespace-nowrap rounded-full border px-3 py-1 text-sm transition-colors",
+                active
+                  ? "border-accent bg-accent/10 font-medium text-accent"
+                  : "border-border text-muted-foreground hover:bg-muted"
+              )}
+            >
+              {tool.short}
+            </Link>
+          );
+        })}
+      </nav>
     </header>
   );
 }

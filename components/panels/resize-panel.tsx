@@ -2,7 +2,7 @@
 
 import { Link2, Link2Off } from "lucide-react";
 import { RESIZE_PRESETS } from "@/lib/formats";
-import { computeDimensions } from "@/lib/process";
+import { computeDimensions, effectiveSourceSize } from "@/lib/process";
 import type { DimensionMode } from "@/lib/types";
 import { useImageStore } from "@/store/useImageStore";
 import {
@@ -26,8 +26,12 @@ export function ResizePanel() {
   const update = useImageStore((s) => s.updateSettings);
   const item = useImageStore((s) => s.items.find((i) => i.id === s.selectedId));
 
-  const srcW = item?.width ?? 0;
-  const srcH = item?.height ?? 0;
+  const eff =
+    item?.width && item?.height
+      ? effectiveSourceSize(item.width, item.height, settings)
+      : { width: 0, height: 0 };
+  const srcW = eff.width;
+  const srcH = eff.height;
   const out =
     srcW && srcH ? computeDimensions(srcW, srcH, settings) : { width: 0, height: 0 };
 

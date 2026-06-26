@@ -1,11 +1,11 @@
 "use client";
 
-import { AlertCircle, Crop as CropIcon, Maximize2 } from "lucide-react";
+import { AlertCircle, Crop as CropIcon, Loader2, Maximize2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { processImage } from "@/lib/process";
 import type { ProcessResult, ProcessSettings } from "@/lib/types";
 import { useImageStore } from "@/store/useImageStore";
-import { cn } from "@/lib/utils";
+import { cn, formatBytes } from "@/lib/utils";
 import { Dropzone } from "@/components/dropzone";
 import { FileQueue } from "@/components/file-queue";
 import { OutputSection } from "@/components/output-section";
@@ -93,7 +93,7 @@ export function ImageStudio({
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
       {/* Left: preview / crop editor */}
       <div className="order-1">
         {selected?.status === "error" ? (
@@ -102,7 +102,10 @@ export function ImageStudio({
             <p className="text-sm">{selected.error ?? "This file could not be decoded."}</p>
           </div>
         ) : tab === "crop" && selectedReady ? (
-          <CropEditor item={selectedReady} />
+          <div className="space-y-3">
+            <CropEditor item={selectedReady} />
+            <CropResult preview={preview} loading={loading} />
+          </div>
         ) : selectedReady ? (
           <PreviewCanvas
             item={selectedReady}
@@ -138,6 +141,46 @@ export function ImageStudio({
         </div>
 
         <DownloadBar selectedItem={selectedReady} previewResult={preview} />
+      </div>
+    </div>
+  );
+}
+
+function CropResult({
+  preview,
+  loading,
+}: {
+  preview: ProcessResult | null;
+  loading: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3">
+      <div className="checkerboard relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-border">
+        {preview?.url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={preview.url}
+            alt="Cropped result"
+            className="h-full w-full object-contain"
+          />
+        ) : (
+          <span className="flex h-full w-full items-center justify-center text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+          </span>
+        )}
+      </div>
+      <div className="text-xs text-muted-foreground">
+        <p className="font-medium text-foreground">
+          Live result {loading && <span className="text-muted-foreground">· updating…</span>}
+        </p>
+        {preview ? (
+          <p className="mt-0.5 tabular-nums">
+            {preview.width} × {preview.height} px · {formatBytes(preview.blob.size)}
+          </p>
+        ) : (
+          <p className="mt-0.5">Processing…</p>
+        )}
+        <p className="mt-1">Drag on the image above to set the crop.</p>
       </div>
     </div>
   );
