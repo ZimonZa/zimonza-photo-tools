@@ -95,12 +95,12 @@ export function ImageStudio({
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+    <div className="grid animate-fade-up gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
       {/* Left: preview / crop editor */}
       <div className="order-1">
         {selected?.status === "error" ? (
-          <div className="flex min-h-[300px] flex-col items-center justify-center gap-2 rounded-2xl border border-border text-muted-foreground">
-            <AlertCircle className="h-6 w-6 text-red-500" />
+          <div className="glass flex min-h-[300px] flex-col items-center justify-center gap-2 rounded-2xl text-muted-foreground">
+            <AlertCircle className="h-6 w-6 text-red-400" />
             <p className="text-sm">{selected.error ?? "This file could not be decoded."}</p>
           </div>
         ) : tab === "crop" && selectedReady ? (
@@ -118,7 +118,8 @@ export function ImageStudio({
             outSize={preview?.blob.size}
           />
         ) : (
-          <div className="flex min-h-[300px] items-center justify-center rounded-2xl border border-border text-sm text-muted-foreground">
+          <div className="glass flex min-h-[300px] items-center justify-center gap-2 rounded-2xl text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin text-accent" />
             Decoding image…
           </div>
         )}
@@ -129,8 +130,8 @@ export function ImageStudio({
         <FileQueue />
         <OutputSection />
 
-        <div className="rounded-2xl border border-border bg-card p-4">
-          <div className="mb-4 inline-flex w-full rounded-xl bg-muted p-1">
+        <div className="glass rounded-2xl p-4">
+          <div className="mb-4 inline-flex w-full rounded-xl border border-border bg-muted/60 p-1">
             <TabButton active={tab === "resize"} onClick={() => setTab("resize")}>
               <Maximize2 className="h-4 w-4" /> Resize
             </TabButton>
@@ -156,8 +157,8 @@ function CropResult({
   loading: boolean;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3">
-      <div className="checkerboard relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-border">
+    <div className="glass flex items-center gap-3 rounded-2xl p-3">
+      <div className="checkerboard relative h-16 w-16 shrink-0 overflow-hidden rounded-lg ring-1 ring-border">
         {preview?.url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -172,15 +173,20 @@ function CropResult({
         )}
       </div>
       <div className="text-xs text-muted-foreground">
-        <p className="font-medium text-foreground">
-          Live result {loading && <span className="text-muted-foreground">· updating…</span>}
+        <p className="flex items-center gap-1.5 font-medium text-foreground">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+          Live result
+          {loading && <Loader2 className="h-3 w-3 animate-spin text-accent" />}
         </p>
         {preview ? (
-          <p className="mt-0.5 tabular-nums">
-            {preview.width} × {preview.height} px · {formatBytes(preview.blob.size)}
+          <p className="mt-1 tabular-nums">
+            {preview.width} × {preview.height} px ·{" "}
+            <span className="font-medium text-foreground">
+              {formatBytes(preview.blob.size)}
+            </span>
           </p>
         ) : (
-          <p className="mt-0.5">Processing…</p>
+          <p className="mt-1">Processing…</p>
         )}
         <p className="mt-1">Drag on the image above to set the crop.</p>
       </div>
@@ -202,9 +208,9 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors",
+        "flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium transition-all duration-200",
         active
-          ? "bg-background text-foreground shadow-sm"
+          ? "bg-card text-accent shadow-card ring-1 ring-accent/30"
           : "text-muted-foreground hover:text-foreground"
       )}
     >

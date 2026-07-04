@@ -16,13 +16,16 @@ export function FileQueue() {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-sm font-medium">
-          {items.length} image{items.length === 1 ? "" : "s"}
+          <span className="mr-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-md bg-accent/15 px-1 text-xs font-semibold text-accent">
+            {items.length}
+          </span>
+          image{items.length === 1 ? "" : "s"}
         </p>
         {items.length > 0 && (
           <button
             type="button"
             onClick={clear}
-            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+            className="text-xs text-muted-foreground transition-colors hover:text-red-400"
           >
             Clear all
           </button>
@@ -36,8 +39,10 @@ export function FileQueue() {
             <div
               key={item.id}
               className={cn(
-                "group relative aspect-square overflow-hidden rounded-xl border bg-muted transition-all",
-                active ? "border-accent ring-2 ring-accent/40" : "border-border hover:border-accent/50"
+                "group relative aspect-square overflow-hidden rounded-xl border bg-muted transition-all duration-200",
+                active
+                  ? "border-transparent shadow-glow ring-2 ring-accent"
+                  : "border-border hover:border-accent/50"
               )}
             >
               <button
@@ -52,10 +57,10 @@ export function FileQueue() {
                   <img
                     src={item.thumbUrl}
                     alt={item.name}
-                    className="checkerboard h-full w-full object-cover"
+                    className="checkerboard h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                   />
                 ) : item.status === "error" ? (
-                  <span className="flex h-full w-full items-center justify-center text-red-500">
+                  <span className="flex h-full w-full items-center justify-center text-red-400">
                     <AlertCircle className="h-5 w-5" />
                   </span>
                 ) : (
@@ -69,7 +74,7 @@ export function FileQueue() {
                 type="button"
                 onClick={() => removeItem(item.id)}
                 aria-label={`Remove ${item.name}`}
-                className="absolute right-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 transition-opacity hover:bg-background focus-visible:opacity-100 group-hover:opacity-100"
+                className="absolute right-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-background/90 text-foreground opacity-0 shadow transition-all duration-150 hover:bg-red-500 hover:text-white focus-visible:opacity-100 group-hover:opacity-100"
               >
                 <X className="h-3 w-3" />
               </button>
@@ -81,14 +86,13 @@ export function FileQueue() {
       <Dropzone variant="compact" />
 
       {items.some((i) => i.status === "error") && (
-        <p className="text-xs text-red-500">
+        <p className="flex items-center gap-1.5 text-xs text-red-400">
+          <AlertCircle className="h-3.5 w-3.5" />
           Some files could not be decoded and were skipped.
         </p>
       )}
 
-      {selectedId && (
-        <SelectedMeta />
-      )}
+      {selectedId && <SelectedMeta />}
     </div>
   );
 }
@@ -97,11 +101,11 @@ function SelectedMeta() {
   const item = useImageStore((s) => s.items.find((i) => i.id === s.selectedId));
   if (!item) return null;
   return (
-    <div className="rounded-xl border border-border bg-muted/30 p-3 text-xs">
+    <div className="glass rounded-xl p-3 text-xs">
       <p className="truncate font-medium" title={item.name}>
         {item.name}
       </p>
-      <p className="mt-1 text-muted-foreground">
+      <p className="mt-1 tabular-nums text-muted-foreground">
         {item.width && item.height ? `${item.width} × ${item.height} px · ` : ""}
         {formatBytes(item.originalSize)}
       </p>

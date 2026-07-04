@@ -58,7 +58,7 @@ export function CropEditor({ item }: { item: ImageItem }) {
   }
 
   return (
-    <div className="relative h-full min-h-[320px] overflow-hidden rounded-2xl border border-border bg-foreground/5 lg:min-h-[460px]">
+    <div className="glass relative h-full min-h-[320px] overflow-hidden rounded-2xl lg:min-h-[460px]">
       {url ? (
         <Cropper
           image={url}

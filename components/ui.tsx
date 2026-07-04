@@ -26,9 +26,9 @@ export function Button({
 }) {
   const variants: Record<ButtonVariant, string> = {
     primary:
-      "bg-accent text-accent-foreground hover:opacity-90 disabled:opacity-50",
+      "bg-gradient-to-r from-accent to-accent2 text-accent-foreground shadow-glow hover:shadow-glow-lg hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none",
     outline:
-      "border border-border hover:bg-muted disabled:opacity-50",
+      "glass hover:border-border-strong hover:bg-muted/60 active:scale-[0.98] disabled:opacity-50",
     ghost: "hover:bg-muted disabled:opacity-50",
   };
   return (
@@ -38,7 +38,7 @@ export function Button({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed",
+        "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed",
         variants[variant],
         className
       )}
@@ -60,16 +60,16 @@ export function Segmented<T extends string>({
   options: { value: T; label: string }[];
 }) {
   return (
-    <div className="inline-flex w-full rounded-xl bg-muted p-1">
+    <div className="inline-flex w-full rounded-xl border border-border bg-muted/60 p-1">
       {options.map((opt) => (
         <button
           key={opt.value}
           type="button"
           onClick={() => onChange(opt.value)}
           className={cn(
-            "flex-1 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors",
+            "flex-1 rounded-lg px-2 py-1.5 text-sm font-medium transition-all duration-200",
             value === opt.value
-              ? "bg-background text-foreground shadow-sm"
+              ? "bg-card text-foreground shadow-card ring-1 ring-border-strong"
               : "text-muted-foreground hover:text-foreground"
           )}
         >
@@ -98,13 +98,13 @@ export function NumberField({
   min?: number;
 }) {
   return (
-    <label className="block">
+    <label className="block w-full">
       {label && (
         <span className="mb-1.5 block text-xs font-medium text-muted-foreground">
           {label}
         </span>
       )}
-      <span className="flex items-center rounded-xl border border-border bg-background focus-within:ring-2 focus-within:ring-ring">
+      <span className="flex items-center rounded-xl border border-border bg-card/60 transition-all duration-200 focus-within:border-accent/60 focus-within:shadow-glow">
         <input
           type="number"
           inputMode="numeric"
@@ -117,7 +117,7 @@ export function NumberField({
           className="w-full bg-transparent px-3 py-2 text-sm outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
         />
         {suffix && (
-          <span className="px-3 text-xs text-muted-foreground">{suffix}</span>
+          <span className="px-3 text-xs font-medium text-muted-foreground">{suffix}</span>
         )}
       </span>
     </label>
@@ -143,11 +143,14 @@ export function Slider({
   onChange: (value: number) => void;
   display?: string;
 }) {
+  const pct = ((value - min) / (max - min)) * 100;
   return (
     <div>
-      <div className="mb-1.5 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between">
         <span className="text-xs font-medium text-muted-foreground">{label}</span>
-        <span className="text-xs font-medium tabular-nums">{display ?? value}</span>
+        <span className="rounded-md bg-accent/10 px-1.5 py-0.5 text-xs font-semibold tabular-nums text-accent">
+          {display ?? value}
+        </span>
       </div>
       <input
         type="range"
@@ -157,6 +160,9 @@ export function Slider({
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         className="w-full"
+        style={{
+          background: `linear-gradient(to right, hsl(var(--accent)) 0%, hsl(var(--accent-2)) ${pct}%, hsl(var(--muted)) ${pct}%, hsl(var(--muted)) 100%)`,
+        }}
       />
     </div>
   );
@@ -182,13 +188,15 @@ export function Toggle({
         aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={cn(
-          "relative h-6 w-10 shrink-0 rounded-full transition-colors",
-          checked ? "bg-accent" : "bg-muted"
+          "relative h-6 w-10 shrink-0 rounded-full transition-all duration-300",
+          checked
+            ? "bg-gradient-to-r from-accent to-accent2 shadow-glow"
+            : "bg-muted ring-1 ring-inset ring-border"
         )}
       >
         <span
           className={cn(
-            "absolute top-0.5 h-5 w-5 rounded-full bg-background shadow transition-transform",
+            "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-300",
             checked ? "translate-x-[18px]" : "translate-x-0.5"
           )}
         />
@@ -220,7 +228,7 @@ export function SelectField<T extends string>({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as T)}
-        className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="w-full rounded-xl border border-border bg-card/60 px-3 py-2 text-sm outline-none transition-all duration-200 focus:border-accent/60 focus:shadow-glow"
       >
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>
@@ -243,7 +251,8 @@ export function FieldGroup({
 }) {
   return (
     <div className="space-y-3">
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        <span className="h-px w-3 bg-gradient-to-r from-accent to-accent2" />
         {title}
       </p>
       {children}

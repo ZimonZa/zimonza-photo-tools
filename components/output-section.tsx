@@ -10,9 +10,10 @@ export function OutputSection() {
   const format = OUTPUT_FORMATS[settings.format];
 
   return (
-    <div className="space-y-4 rounded-2xl border border-border bg-card p-4">
+    <div className="glass space-y-4 rounded-2xl p-4">
       <div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          <span className="h-px w-3 bg-gradient-to-r from-accent to-accent2" />
           Output format
         </p>
         <Segmented<OutputFormat>
@@ -49,7 +50,7 @@ export function OutputSection() {
           )}
         </div>
       ) : (
-        <p className="text-xs text-muted-foreground">
+        <p className="rounded-xl bg-muted/50 p-3 text-xs leading-relaxed text-muted-foreground">
           PNG is lossless — no quality or target-size setting needed. Use JPG or
           WebP to shrink the file further.
         </p>
@@ -62,7 +63,7 @@ export function OutputSection() {
             type="color"
             value={settings.bgColor}
             onChange={(e) => update({ bgColor: e.target.value })}
-            className="h-8 w-12 cursor-pointer rounded border border-border bg-transparent"
+            className="h-8 w-12 cursor-pointer rounded-lg border border-border"
           />
         </label>
       )}

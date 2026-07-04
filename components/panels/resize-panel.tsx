@@ -123,9 +123,9 @@ export function ResizePanel() {
       )}
 
       {item && (
-        <div className="rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
-          New size:{" "}
-          <span className="font-medium text-foreground tabular-nums">
+        <div className="flex items-center justify-between rounded-xl border border-accent/20 bg-accent/5 p-3 text-xs text-muted-foreground">
+          New size
+          <span className="rounded-md bg-accent/15 px-2 py-0.5 font-semibold tabular-nums text-accent">
             {out.width} × {out.height} px
           </span>
         </div>

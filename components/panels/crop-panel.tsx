@@ -36,10 +36,10 @@ export function CropPanel() {
                 type="button"
                 onClick={() => update({ cropAspect: preset.ratio })}
                 className={cn(
-                  "rounded-lg border py-2 text-xs font-medium transition-colors",
+                  "rounded-lg border py-2 text-xs font-medium transition-all duration-200",
                   active
-                    ? "border-accent bg-accent/10 text-accent"
-                    : "border-border text-muted-foreground hover:bg-muted"
+                    ? "border-accent/60 bg-accent/10 text-accent shadow-glow"
+                    : "border-border text-muted-foreground hover:border-border-strong hover:bg-muted"
                 )}
               >
                 {preset.label}
@@ -117,10 +117,10 @@ function OrientButton({
       onClick={onClick}
       title={label}
       className={cn(
-        "flex flex-col items-center gap-1 rounded-lg border py-2 text-[11px] transition-colors",
+        "flex flex-col items-center gap-1 rounded-lg border py-2 text-[11px] transition-all duration-200",
         active
-          ? "border-accent bg-accent/10 text-accent"
-          : "border-border text-muted-foreground hover:bg-muted"
+          ? "border-accent/60 bg-accent/10 text-accent shadow-glow"
+          : "border-border text-muted-foreground hover:border-border-strong hover:bg-muted"
       )}
     >
       {children}

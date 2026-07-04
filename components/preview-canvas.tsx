@@ -46,16 +46,22 @@ export function PreviewCanvas({
 
   const shown = showOriginal && originalUrl ? originalUrl : previewUrl;
 
+  // Size delta vs the original file (negative = smaller = good).
+  const delta =
+    typeof outSize === "number" && item.originalSize > 0
+      ? Math.round(((outSize - item.originalSize) / item.originalSize) * 100)
+      : null;
+
   return (
     <div className="flex h-full flex-col">
-      <div className="relative flex min-h-[300px] flex-1 items-center justify-center overflow-hidden rounded-2xl border border-border lg:min-h-[420px]">
-        <div className="checkerboard absolute inset-0" />
+      <div className="glass relative flex min-h-[320px] flex-1 items-center justify-center overflow-hidden rounded-2xl p-2 lg:min-h-[460px]">
+        <div className="checkerboard absolute inset-2 rounded-xl" />
         {shown ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={shown}
             alt={item.name}
-            className="relative max-h-full max-w-full object-contain"
+            className="relative max-h-full max-w-full rounded-lg object-contain shadow-card"
           />
         ) : (
           <span className="relative text-muted-foreground">
@@ -64,34 +70,46 @@ export function PreviewCanvas({
         )}
 
         {loading && shown && (
-          <span className="absolute right-3 top-3 flex items-center gap-1.5 rounded-full bg-background/90 px-2.5 py-1 text-xs text-muted-foreground shadow-sm">
-            <Loader2 className="h-3 w-3 animate-spin" /> Updating
+          <span className="glass absolute right-4 top-4 flex items-center gap-1.5 rounded-full px-3 py-1 text-xs text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin text-accent" /> Updating
           </span>
         )}
 
         {showOriginal && (
-          <span className="absolute left-3 top-3 rounded-full bg-foreground/80 px-2.5 py-1 text-xs text-background">
+          <span className="absolute left-4 top-4 rounded-full bg-foreground/85 px-3 py-1 text-xs font-medium text-background">
             Original
           </span>
         )}
       </div>
 
-      <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-        <div className="tabular-nums">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 tabular-nums">
           {outWidth && outHeight ? (
-            <span>
-              {outWidth} × {outHeight} px
+            <>
+              <span className="rounded-md bg-muted px-2 py-1 font-medium text-foreground">
+                {outWidth} × {outHeight}
+              </span>
               {typeof outSize === "number" && (
                 <>
-                  {" · "}
-                  <span className="font-medium text-foreground">
+                  <span className="rounded-md bg-muted px-2 py-1 font-medium text-foreground">
                     {formatBytes(outSize)}
                   </span>
-                  {" · was "}
-                  {formatBytes(item.originalSize)}
+                  {delta !== null && delta !== 0 && (
+                    <span
+                      className={cn(
+                        "rounded-md px-2 py-1 font-semibold",
+                        delta < 0
+                          ? "bg-emerald-500/15 text-emerald-500"
+                          : "bg-amber-500/15 text-amber-500"
+                      )}
+                    >
+                      {delta < 0 ? "−" : "+"}
+                      {Math.abs(delta)}%
+                    </span>
+                  )}
                 </>
               )}
-            </span>
+            </>
           ) : (
             <span>Preview</span>
           )}
@@ -111,8 +129,8 @@ export function PreviewCanvas({
           }}
           onTouchEnd={() => setShowOriginal(false)}
           className={cn(
-            "rounded-lg border border-border px-2.5 py-1 transition-colors hover:bg-muted",
-            showOriginal && "bg-muted"
+            "glass rounded-full px-3 py-1.5 font-medium transition-all duration-200 hover:border-accent/50 hover:text-foreground",
+            showOriginal && "border-accent/50 bg-accent/10 text-accent"
           )}
         >
           Hold to compare
