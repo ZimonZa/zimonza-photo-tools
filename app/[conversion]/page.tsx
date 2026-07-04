@@ -4,6 +4,9 @@ import { FORMAT_PAIRS, OUTPUT_FORMATS } from "@/lib/formats";
 import { ImageStudio } from "@/components/image-studio";
 import { ToolPage, type Faq } from "@/components/tool-page";
 
+// Static export: only the listed format pairs exist; anything else is a 404.
+export const dynamicParams = false;
+
 export function generateStaticParams() {
   return FORMAT_PAIRS.map((pair) => ({ conversion: pair.slug }));
 }
