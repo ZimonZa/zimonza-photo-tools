@@ -15,6 +15,8 @@ import { cn } from "@/lib/utils";
 export function CropPanel() {
   const settings = useImageStore((s) => s.settings);
   const update = useImageStore((s) => s.updateSettings);
+  const selectedId = useImageStore((s) => s.selectedId);
+  const setItemCrop = useImageStore((s) => s.setItemCrop);
 
   const activeAspect = settings.cropAspect;
 
@@ -80,9 +82,10 @@ export function CropPanel() {
 
       <button
         type="button"
-        onClick={() =>
-          update({ crop: null, cropAspect: null, rotation: 0, flipH: false, flipV: false })
-        }
+        onClick={() => {
+          if (selectedId) setItemCrop(selectedId, null);
+          update({ cropAspect: null, rotation: 0, flipH: false, flipV: false });
+        }}
         className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
         <Eraser className="h-4 w-4" />

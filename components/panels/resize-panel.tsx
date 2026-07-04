@@ -28,7 +28,10 @@ export function ResizePanel() {
 
   const eff =
     item?.width && item?.height
-      ? effectiveSourceSize(item.width, item.height, settings)
+      ? effectiveSourceSize(item.width, item.height, {
+          ...settings,
+          crop: item.crop ?? null,
+        })
       : { width: 0, height: 0 };
   const srcW = eff.width;
   const srcH = eff.height;

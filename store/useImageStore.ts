@@ -1,7 +1,12 @@
 import { create } from "zustand";
 import { decodeFile } from "@/lib/decode";
 import { makeThumbnail } from "@/lib/process";
-import { DEFAULT_SETTINGS, type ImageItem, type ProcessSettings } from "@/lib/types";
+import {
+  DEFAULT_SETTINGS,
+  type CropRect,
+  type ImageItem,
+  type ProcessSettings,
+} from "@/lib/types";
 
 interface ImageStore {
   items: ImageItem[];
@@ -13,6 +18,7 @@ interface ImageStore {
   clear: () => void;
   select: (id: string) => void;
   updateSettings: (patch: Partial<ProcessSettings>) => void;
+  setItemCrop: (id: string, crop: CropRect | null) => void;
 }
 
 function uid(): string {
@@ -87,4 +93,9 @@ export const useImageStore = create<ImageStore>((set, get) => ({
 
   updateSettings: (patch) =>
     set((state) => ({ settings: { ...state.settings, ...patch } })),
+
+  setItemCrop: (id, crop) =>
+    set((state) => ({
+      items: state.items.map((it) => (it.id === id ? { ...it, crop } : it)),
+    })),
 }));

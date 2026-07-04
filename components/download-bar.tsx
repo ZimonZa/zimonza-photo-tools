@@ -11,7 +11,10 @@ import { baseName } from "@/lib/utils";
 import { Button } from "@/components/ui";
 
 async function buildBlob(item: ImageItem, settings: ProcessSettings): Promise<Blob> {
-  const result = await processImage(item.source!, item.width!, item.height!, settings);
+  const result = await processImage(item.source!, item.width!, item.height!, {
+    ...settings,
+    crop: item.crop ?? null, // each image is cropped only by its own rect
+  });
   URL.revokeObjectURL(result.url); // we only need the blob here
   return result.blob;
 }

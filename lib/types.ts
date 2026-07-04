@@ -68,6 +68,8 @@ export interface ImageItem {
   height?: number;
   source?: CanvasImageSource;
   thumbUrl?: string;
+  /** Per-image crop rect in source pixels — crops never leak between images. */
+  crop?: CropRect | null;
 }
 
 export interface ProcessResult {

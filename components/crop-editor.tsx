@@ -13,7 +13,7 @@ const DISPLAY_MAX = 1600;
 
 export function CropEditor({ item }: { item: ImageItem }) {
   const settings = useImageStore((s) => s.settings);
-  const update = useImageStore((s) => s.updateSettings);
+  const setItemCrop = useImageStore((s) => s.setItemCrop);
 
   const [url, setUrl] = useState<string | null>(null);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
@@ -21,10 +21,13 @@ export function CropEditor({ item }: { item: ImageItem }) {
   const scaleRef = useRef(1); // display px -> full-res px
 
   // Build a (downscaled) display URL for the cropper, revoked on change.
+  // Pan/zoom also reset — they are meaningless on a different image.
   useEffect(() => {
     let current: string | null = null;
     let cancelled = false;
     setUrl(null);
+    setCrop({ x: 0, y: 0 });
+    setZoom(1);
     if (item.source && item.width && item.height) {
       sourceToDisplayUrl(item.source, item.width, item.height, DISPLAY_MAX).then(
         ({ url: u, scale }) => {
@@ -46,13 +49,11 @@ export function CropEditor({ item }: { item: ImageItem }) {
 
   function onCropComplete(_area: Area, areaPixels: Area) {
     const f = scaleRef.current;
-    update({
-      crop: {
-        x: Math.round(areaPixels.x * f),
-        y: Math.round(areaPixels.y * f),
-        width: Math.round(areaPixels.width * f),
-        height: Math.round(areaPixels.height * f),
-      },
+    setItemCrop(item.id, {
+      x: Math.round(areaPixels.x * f),
+      y: Math.round(areaPixels.y * f),
+      width: Math.round(areaPixels.width * f),
+      height: Math.round(areaPixels.height * f),
     });
   }
 

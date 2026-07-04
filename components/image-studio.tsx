@@ -3,7 +3,7 @@
 import { AlertCircle, Crop as CropIcon, Loader2, Maximize2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { processImage } from "@/lib/process";
-import type { ProcessResult, ProcessSettings } from "@/lib/types";
+import { DEFAULT_SETTINGS, type ProcessResult, type ProcessSettings } from "@/lib/types";
 import { useImageStore } from "@/store/useImageStore";
 import { cn, formatBytes } from "@/lib/utils";
 import { Dropzone } from "@/components/dropzone";
@@ -40,12 +40,14 @@ export function ImageStudio({
     null;
   const selectedReady = selected?.status === "ready" ? selected : null;
 
-  // Apply page-specific initial settings once.
+  // Reset to a predictable per-page baseline on mount. The store is global, so
+  // without this, settings from another tool page (e.g. compress's target size)
+  // would silently leak into this one.
   const appliedRef = useRef(false);
   useEffect(() => {
-    if (!appliedRef.current && initialSettings) {
+    if (!appliedRef.current) {
       appliedRef.current = true;
-      updateSettings(initialSettings);
+      updateSettings({ ...DEFAULT_SETTINGS, ...initialSettings });
     }
   }, [initialSettings, updateSettings]);
 
@@ -63,7 +65,7 @@ export function ImageStudio({
           selectedReady.source!,
           selectedReady.width!,
           selectedReady.height!,
-          settings
+          { ...settings, crop: selectedReady.crop ?? null }
         );
         if (token !== tokenRef.current) {
           URL.revokeObjectURL(result.url);
@@ -81,7 +83,7 @@ export function ImageStudio({
     }, 220);
 
     return () => clearTimeout(handle);
-  }, [selectedReady?.id, selectedReady?.source, selectedReady?.width, selectedReady?.height, settings]);
+  }, [selectedReady?.id, selectedReady?.source, selectedReady?.width, selectedReady?.height, selectedReady?.crop, settings]);
 
   // Empty state — big dropzone.
   if (items.length === 0) {

@@ -53,13 +53,28 @@ function toBlob(
  * Render the source into a canvas applying crop, rotation (0/90/180/270)
  * and flips. The returned canvas holds the full-resolution, oriented image.
  */
+/**
+ * Intersect a crop rect with the source bounds. Returns null when the rect
+ * lies (almost) entirely outside the image — callers then skip cropping,
+ * so a stale/invalid rect can never produce a blank output.
+ */
+function clampCrop(crop: CropRect, srcW: number, srcH: number): CropRect | null {
+  const x = Math.max(0, Math.min(crop.x, srcW - 1));
+  const y = Math.max(0, Math.min(crop.y, srcH - 1));
+  const width = Math.min(crop.width - (x - crop.x), srcW - x);
+  const height = Math.min(crop.height - (y - crop.y), srcH - y);
+  if (width < 1 || height < 1) return null;
+  return { x, y, width, height };
+}
+
 function buildOrientedCanvas(
   source: CanvasImageSource,
   srcW: number,
   srcH: number,
   s: ProcessSettings
 ): HTMLCanvasElement {
-  const crop: CropRect = s.crop ?? { x: 0, y: 0, width: srcW, height: srcH };
+  const full: CropRect = { x: 0, y: 0, width: srcW, height: srcH };
+  const crop: CropRect = (s.crop && clampCrop(s.crop, srcW, srcH)) || full;
   const swap = s.rotation === 90 || s.rotation === 270;
   const canvas = makeCanvas(swap ? crop.height : crop.width, swap ? crop.width : crop.height);
   const ctx = get2d(canvas);
@@ -92,8 +107,9 @@ export function effectiveSourceSize(
   srcH: number,
   s: ProcessSettings
 ): { width: number; height: number } {
-  const cw = s.crop ? s.crop.width : srcW;
-  const ch = s.crop ? s.crop.height : srcH;
+  const clamped = s.crop ? clampCrop(s.crop, srcW, srcH) : null;
+  const cw = clamped ? clamped.width : srcW;
+  const ch = clamped ? clamped.height : srcH;
   const swap = s.rotation === 90 || s.rotation === 270;
   return { width: swap ? ch : cw, height: swap ? cw : ch };
 }
