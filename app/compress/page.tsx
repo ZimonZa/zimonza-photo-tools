@@ -32,7 +32,11 @@ export default function CompressRoute() {
     >
       <ImageStudio
         tool="compress"
-        initialSettings={{ targetSizeEnabled: true, targetSizeKB: 150 }}
+        initialSettings={{
+          targetSizeEnabled: true,
+          targetSizeValue: 150,
+          targetSizeUnit: "KB",
+        }}
       />
     </ToolPage>
   );

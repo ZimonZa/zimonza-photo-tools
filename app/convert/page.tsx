@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 const faqs: Faq[] = [
   {
     q: "Which formats can I convert?",
-    a: "Input: HEIC, HEIF, AVIF, JPG, PNG, WebP, GIF, BMP, TIFF and SVG. Output: JPG, PNG or WebP.",
+    a: "Input: HEIC, HEIF, AVIF, JPG, PNG, WebP, GIF, BMP, TIFF, DNG, ICO and SVG. Output: JPG, PNG or WebP.",
   },
   {
     q: "How do I convert iPhone HEIC photos to JPG?",

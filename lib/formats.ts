@@ -39,18 +39,25 @@ export const OUTPUT_FORMATS: Record<OutputFormat, OutputFormatInfo> = {
 
 export const OUTPUT_FORMAT_LIST = Object.values(OUTPUT_FORMATS);
 
-/** Accepted input types for the dropzone (broad support incl. HEIC/TIFF/AVIF). */
+/**
+ * Accepted input types for the dropzone — everything the decode stack handles:
+ * native browser decode (jpg/png/webp/gif/bmp/avif/svg/ico), libheif (HEIC/HEIF
+ * family) and utif (TIFF + DNG via raw IFDs or the embedded JPEG preview).
+ */
 export const ACCEPTED_INPUT = {
-  "image/jpeg": [".jpg", ".jpeg"],
-  "image/png": [".png"],
+  "image/jpeg": [".jpg", ".jpeg", ".jfif", ".pjpeg", ".pjp"],
+  "image/png": [".png", ".apng"],
   "image/webp": [".webp"],
   "image/gif": [".gif"],
-  "image/bmp": [".bmp"],
+  "image/bmp": [".bmp", ".dib"],
   "image/tiff": [".tif", ".tiff"],
+  "image/x-adobe-dng": [".dng"],
   "image/svg+xml": [".svg"],
   "image/avif": [".avif"],
-  "image/heic": [".heic"],
-  "image/heif": [".heif"],
+  "image/heic": [".heic", ".heics"],
+  "image/heif": [".heif", ".hif"],
+  "image/x-icon": [".ico"],
+  "image/vnd.microsoft.icon": [".ico"],
 } as const;
 
 /** Tool routes used by the header nav and home grid. */

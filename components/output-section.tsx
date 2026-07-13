@@ -31,13 +31,26 @@ export function OutputSection() {
             onChange={(v) => update({ targetSizeEnabled: v })}
           />
           {settings.targetSizeEnabled ? (
-            <NumberField
-              label="Target size"
-              value={settings.targetSizeKB}
-              suffix="KB"
-              min={1}
-              onChange={(v) => update({ targetSizeKB: v ?? 1 })}
-            />
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <NumberField
+                  label="Target size"
+                  value={settings.targetSizeValue}
+                  min={1}
+                  onChange={(v) => update({ targetSizeValue: v ?? 1 })}
+                />
+              </div>
+              <div className="w-28 shrink-0">
+                <Segmented<"KB" | "MB">
+                  value={settings.targetSizeUnit}
+                  onChange={(v) => update({ targetSizeUnit: v })}
+                  options={[
+                    { value: "KB", label: "KB" },
+                    { value: "MB", label: "MB" },
+                  ]}
+                />
+              </div>
+            </div>
           ) : (
             <Slider
               label="Quality"

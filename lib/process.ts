@@ -174,21 +174,31 @@ function flatten(canvas: HTMLCanvasElement, bg: string): HTMLCanvasElement {
   return out;
 }
 
-/** Binary-search quality so the encoded blob fits within targetBytes. */
+/** Target size in bytes from the user's value + unit. */
+export function targetBytes(s: ProcessSettings): number {
+  return s.targetSizeValue * (s.targetSizeUnit === "MB" ? 1024 * 1024 : 1024);
+}
+
+/**
+ * Binary-search quality so the encoded blob fits within maxBytes.
+ * Exits early once a result lands within 3% under the target — typically
+ * 3–5 encodes instead of a fixed 8.
+ */
 async function encodeToTargetSize(
   canvas: HTMLCanvasElement,
   mime: string,
-  targetBytes: number
+  maxBytes: number
 ): Promise<Blob> {
   let lo = 0.05;
-  let hi = 0.97;
+  let hi = 0.95;
   let best: Blob | null = null;
 
   for (let i = 0; i < 8; i++) {
     const mid = (lo + hi) / 2;
     const blob = await toBlob(canvas, mime, mid);
-    if (blob.size <= targetBytes) {
+    if (blob.size <= maxBytes) {
       best = blob;
+      if (blob.size >= maxBytes * 0.97) break; // close enough to the target
       lo = mid; // try higher quality
     } else {
       hi = mid; // too big, lower quality
@@ -226,7 +236,7 @@ export async function processImage(
 
   let blob: Blob;
   if (s.targetSizeEnabled && format.lossy) {
-    blob = await encodeToTargetSize(working, format.mime, s.targetSizeKB * 1024);
+    blob = await encodeToTargetSize(working, format.mime, targetBytes(s));
   } else {
     blob = await toBlob(working, format.mime, format.lossy ? s.quality : undefined);
   }
@@ -245,7 +255,9 @@ export function makeThumbnail(
   const canvas = makeCanvas(srcW * r, srcH * r);
   const ctx = get2d(canvas);
   ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL("image/png");
+  // WebP keeps queue thumbnails small in memory; browsers without webp
+  // encoding silently fall back to PNG.
+  return canvas.toDataURL("image/webp", 0.8);
 }
 
 /**

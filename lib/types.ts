@@ -31,7 +31,8 @@ export interface ProcessSettings {
   format: OutputFormat;
   quality: number; // 0..1 (lossy formats only)
   targetSizeEnabled: boolean;
-  targetSizeKB: number;
+  targetSizeValue: number;
+  targetSizeUnit: "KB" | "MB";
   bgColor: string; // flatten color when exporting transparency to JPG
 }
 
@@ -51,7 +52,8 @@ export const DEFAULT_SETTINGS: ProcessSettings = {
   format: "jpeg",
   quality: 0.85,
   targetSizeEnabled: false,
-  targetSizeKB: 200,
+  targetSizeValue: 200,
+  targetSizeUnit: "KB",
   bgColor: "#ffffff",
 };
 

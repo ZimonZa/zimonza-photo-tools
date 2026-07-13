@@ -7,7 +7,7 @@ import { ACCEPTED_INPUT } from "@/lib/formats";
 import { useImageStore } from "@/store/useImageStore";
 import { cn } from "@/lib/utils";
 
-const FORMAT_CHIPS = ["JPG", "PNG", "WebP", "HEIC", "AVIF", "TIFF", "GIF", "SVG"];
+const FORMAT_CHIPS = ["JPG", "PNG", "WebP", "HEIC", "AVIF", "TIFF", "DNG", "GIF", "SVG", "ICO", "BMP"];
 
 export function Dropzone({ variant = "hero" }: { variant?: "hero" | "compact" }) {
   const addFiles = useImageStore((s) => s.addFiles);

@@ -65,7 +65,9 @@ export function DownloadBar({
         setProgress({ done: i + 1, total: ready.length });
       }
 
-      const out = await zip.generateAsync({ type: "blob" });
+      // STORE: the images are already compressed — skipping deflate makes
+      // large batches zip several times faster with ~identical size.
+      const out = await zip.generateAsync({ type: "blob", compression: "STORE" });
       saveAs(out, "zimonza-images.zip");
     } finally {
       setBusy(null);
