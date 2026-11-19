@@ -240,6 +240,18 @@ Mockups: `.superpowers/brainstorm/1289-1795089246/content/video-studio-layout.ht
 3. Export screen: format, size (best quality / target MB with estimate), resolution,
    **progress bar with time remaining and Cancel**, then Download.
 
+**Live preview — both kinds (owner, 2026-11-19):**
+- **Edits preview (instant):** the centre player shows trim range, crop box / blur-fit, rotation/flip,
+  output size and text overlay live on the original video while settings change.
+- **Compressed-quality preview:** shows what the exported file will actually look like. My calls on
+  how: when the "Preview quality" switch is on, encode a ~3-second sample around the playhead with the
+  real engine and the current plan, about 1 s after settings stop changing; show an
+  **Original | Compressed** toggle on the player plus the estimated final file size. Off by default on
+  phones to save battery; a sample encode must never block or slow the main export.
+
+**Custom resize (owner, confirmed 2026-11-19):** width × height in px with aspect lock, presets and
+percent, as in §6.2; unlocking the ratio uses crop-to-fill or blur-fit.
+
 **Tool pages (my call):** each page shows its header and a video dropzone first; once a
 file is dropped, the editor opens (full-screen on phones).
 
