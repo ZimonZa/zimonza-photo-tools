@@ -32,3 +32,7 @@ next-env.d.ts
 
 # brainstorm mockups
 .superpowers/
+
+# vitest browser-mode artifacts
+__screenshots__/
+.vitest-attachments/
