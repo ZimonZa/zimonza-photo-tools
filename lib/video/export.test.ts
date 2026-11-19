@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { maxVideoBps, nextVideoBps } from "@/lib/video/bitrate";
 import type { EncodeJob, SupportCheck, VideoEngine, VideoInfo } from "@/lib/video/engines/types";
 import { ExportCanceledError, TargetNotReachedError, TargetTooSmallError } from "@/lib/video/errors";
-import { exportVideo, type ExportDeps, type ExportStatus } from "@/lib/video/export";
+import { createProbe, exportVideo, type ExportDeps, type ExportStatus } from "@/lib/video/export";
 import { MB, type EditRecipe } from "@/lib/video/recipe";
 
 const INFO: VideoInfo = {
@@ -202,6 +202,30 @@ describe("cancel", () => {
     const ff = fakeEngine("ffmpeg");
     await expect(exportVideo(recipe(), {}, deps(wc, ff))).rejects.toBeInstanceOf(ExportCanceledError);
     expect(ff.jobs).toHaveLength(0);
+  });
+});
+
+describe("diagnostics", () => {
+  test("reports what was found in the file before encoding", async () => {
+    const statuses: ExportStatus[] = [];
+    await exportVideo(recipe(), { onStatus: (s) => statuses.push(s) }, deps(fakeEngine("webcodecs"), fakeEngine("ffmpeg")));
+    expect(statuses).toContainEqual({ phase: "probed", info: INFO });
+  });
+
+  test("a probe that falls back to ffmpeg says why", async () => {
+    const statuses: ExportStatus[] = [];
+    const probe = createProbe(
+      async () => {
+        throw new Error("Unsupported container");
+      },
+      async () => INFO
+    );
+    await exportVideo(
+      recipe(),
+      { onStatus: (s) => statuses.push(s) },
+      { probe, engines: { webcodecs: fakeEngine("webcodecs"), ffmpeg: fakeEngine("ffmpeg") } }
+    );
+    expect(statuses).toContainEqual({ phase: "fallback", reason: "Fast engine can't read this file: Unsupported container" });
   });
 });
 

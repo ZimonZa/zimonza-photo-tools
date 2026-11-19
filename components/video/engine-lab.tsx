@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button, FieldGroup, NumberField, Segmented, SelectField, Toggle } from "@/components/ui";
 import { formatBytes } from "@/lib/utils";
 import { ExportCanceledError, InvalidTrimError, TargetTooSmallError } from "@/lib/video/errors";
+import type { VideoInfo } from "@/lib/video/engines/types";
 import type { ExportResult, ExportStatus } from "@/lib/video/export";
 import { MB, type EditRecipe, type QualityLevel } from "@/lib/video/recipe";
 
@@ -21,6 +22,8 @@ function describeStatus(s: ExportStatus): string {
   switch (s.phase) {
     case "probing":
       return "Reading the video…";
+    case "probed":
+      return `Found ${describeInfo(s.info)}`;
     case "loading-engine":
       return `Downloading backup engine… ${mb(s.loadedBytes)} of ${s.totalBytes ? mb(s.totalBytes) : "~32 MB"}`;
     case "encoding":
@@ -28,6 +31,16 @@ function describeStatus(s: ExportStatus): string {
     case "fallback":
       return `Switching to the backup engine: ${s.reason}`;
   }
+}
+
+function describeInfo(i: VideoInfo): string {
+  return `${i.videoCodec ?? "?"} + ${i.audioCodec ?? "no audio"} · ${i.width}×${i.height} · rotation ${i.rotation} · ${i.durationSec.toFixed(2)} s (starts at ${i.startSec.toFixed(2)} s) · fast engine can read: ${i.readableByMediabunny ? "yes" : "no"}`;
+}
+
+/** Settings frozen when Run is pressed, so reports describe the run, not the current form. */
+interface RunSettings {
+  summary: string;
+  targetBytes: number | null;
 }
 
 function parseSeconds(text: string): number | null {
@@ -56,6 +69,8 @@ export function EngineLab() {
   const [error, setError] = useState<string | null>(null);
   const [caps, setCaps] = useState("checking…");
   const [copied, setCopied] = useState(false);
+  const [probed, setProbed] = useState<VideoInfo | null>(null);
+  const [runSettings, setRunSettings] = useState<RunSettings | null>(null);
 
   const controllerRef = useRef<AbortController | null>(null);
 
@@ -98,6 +113,12 @@ export function EngineLab() {
       size: sizeKind === "target" ? { kind: "target", bytes: (targetMb ?? 20) * MB } : { kind: "quality", level },
     };
 
+    setRunSettings({
+      summary: `file ${file.name} (${file.size} bytes) · trim ${trimStart || "-"}..${trimEnd || "-"} · max long side ${maxLong} · muted ${muted} · ${sizeKind === "target" ? `target ${targetMb ?? 20} MB` : `quality ${level}`} · engine ${engine}`,
+      targetBytes: recipe.size.kind === "target" ? recipe.size.bytes : null,
+    });
+    setProbed(null);
+
     const controller = new AbortController();
     controllerRef.current = controller;
     setRunning(true);
@@ -115,14 +136,16 @@ export function EngineLab() {
         engine,
         signal: controller.signal,
         onProgress: setProgress,
-        onStatus: (s) =>
+        onStatus: (s) => {
+          if (s.phase === "probed") setProbed(s.info);
           setStatusLog((log) => {
             const line = describeStatus(s);
             // Download progress fires per chunk — keep one line for it.
             return s.phase === "loading-engine" && log[log.length - 1]?.startsWith("Downloading")
               ? [...log.slice(0, -1), line]
               : [...log, line];
-          }),
+          });
+        },
       });
       setResult(r);
       setResultUrl(URL.createObjectURL(r.blob));
@@ -143,7 +166,7 @@ export function EngineLab() {
     }
   }
 
-  const targetBytes = sizeKind === "target" ? (targetMb ?? 20) * MB : null;
+  const targetBytes = runSettings?.targetBytes ?? null;
   const withinTarget = result && targetBytes !== null ? result.blob.size <= targetBytes : null;
 
   function report(): string {
@@ -151,11 +174,8 @@ export function EngineLab() {
       "ZimonZa video engine lab report",
       `Device: ${navigator.userAgent}`,
       `Capabilities: ${caps}`,
-      file ? `Input: ${file.name} · ${file.size} bytes (${mb(file.size)})` : "Input: none",
-      result
-        ? `Input info: ${result.info.videoCodec ?? "?"}/${result.info.audioCodec ?? "no audio"} · ${result.info.width}x${result.info.height} · rotation ${result.info.rotation} · ${result.info.durationSec.toFixed(2)} s · readable by fast engine: ${result.info.readableByMediabunny}`
-        : null,
-      `Settings: trim ${trimStart || "-"}..${trimEnd || "-"} · max long side ${maxLong} · muted ${muted} · ${sizeKind === "target" ? `target ${targetMb} MB` : `quality ${level}`} · engine ${engine}`,
+      `Run: ${runSettings?.summary ?? "-"}`,
+      `Input info: ${probed ? describeInfo(probed) : "not read"}`,
       `Status: ${statusLog.join(" | ") || "-"}`,
       result
         ? `Result: ${result.engine} · ${result.blob.size} bytes (${mb(result.blob.size)})${targetBytes !== null ? ` · target ${targetBytes} · within target: ${withinTarget}` : ""} · ${result.width}x${result.height} · passes ${result.attempts} · stepped down ${result.steppedDown}`

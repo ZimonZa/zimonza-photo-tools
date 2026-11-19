@@ -13,6 +13,7 @@ import { normalizeTrim, outputFileName, type EditRecipe } from "@/lib/video/reci
 
 export type ExportStatus =
   | { phase: "probing" }
+  | { phase: "probed"; info: VideoInfo }
   | { phase: "loading-engine"; engine: "ffmpeg"; loadedBytes: number; totalBytes: number | null }
   | { phase: "encoding"; engine: EngineId; attempt: number }
   | { phase: "fallback"; reason: string };
@@ -38,22 +39,33 @@ export interface ExportResult {
   info: VideoInfo;
 }
 
+type DownloadListener = (loaded: number, total: number | null) => void;
+
 export interface ExportDeps {
-  probe(file: File, onEngineDownload?: (loaded: number, total: number | null) => void): Promise<VideoInfo>;
+  probe(file: File, onEngineDownload?: DownloadListener, onFallback?: (reason: string) => void): Promise<VideoInfo>;
   engines: Record<EngineId, VideoEngine>;
+}
+
+/** Probe with the fast reader; when it can't read the file, say why and use ffmpeg's. */
+export function createProbe(
+  fast: (file: File) => Promise<VideoInfo>,
+  full: (file: File, onEngineDownload?: DownloadListener) => Promise<VideoInfo>
+): ExportDeps["probe"] {
+  return async (file, onEngineDownload, onFallback) => {
+    try {
+      return await fast(file);
+    } catch (e) {
+      onFallback?.(`Fast engine can't read this file: ${e instanceof Error ? e.message : String(e)}`);
+      return full(file, onEngineDownload);
+    }
+  };
 }
 
 /** Real engines, loaded only when an export actually runs. */
 async function loadDefaultDeps(): Promise<ExportDeps> {
   const [wc, ff] = await Promise.all([import("@/lib/video/engines/webcodecs"), import("@/lib/video/engines/ffmpeg")]);
   return {
-    async probe(file, onEngineDownload) {
-      try {
-        return await wc.probeWithMediabunny(file);
-      } catch {
-        return ff.probeWithFfmpeg(file, onEngineDownload);
-      }
-    },
+    probe: createProbe(wc.probeWithMediabunny, ff.probeWithFfmpeg),
     engines: { webcodecs: wc.webcodecsEngine, ffmpeg: ff.ffmpegEngine },
   };
 }
@@ -81,7 +93,8 @@ export async function exportVideo(
   checkAbort();
   const d = deps ?? (await loadDefaultDeps());
   status({ phase: "probing" });
-  const info = await d.probe(recipe.file, onEngineDownload);
+  const info = await d.probe(recipe.file, onEngineDownload, (reason) => status({ phase: "fallback", reason }));
+  status({ phase: "probed", info });
   checkAbort();
 
   const trim = normalizeTrim(recipe.trim, info.durationSec);
