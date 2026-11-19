@@ -36,3 +36,6 @@ next-env.d.ts
 # vitest browser-mode artifacts
 __screenshots__/
 .vitest-attachments/
+
+# ffmpeg.wasm assets copied from node_modules at dev/build time
+/public/ffmpeg/

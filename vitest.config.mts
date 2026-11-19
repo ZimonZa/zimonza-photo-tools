@@ -22,7 +22,9 @@ export default defineConfig({
       {
         extends: true,
         // Pre-bundle so Vite doesn't reload the page mid-run when it first discovers these deps.
-        optimizeDeps: { include: ["mediabunny"] },
+        optimizeDeps: { include: ["mediabunny", "@ffmpeg/ffmpeg"] },
+        // Next.js inlines NEXT_PUBLIC_* at build time; tests serve public/ from the root.
+        define: { "process.env.NEXT_PUBLIC_BASE_PATH": JSON.stringify("") },
         test: {
           name: "browser",
           include: ["lib/**/*.browser.test.ts"],
