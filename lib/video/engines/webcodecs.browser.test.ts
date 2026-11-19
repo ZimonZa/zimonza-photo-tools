@@ -109,6 +109,25 @@ describe("webcodecsEngine.encode", () => {
   });
 });
 
+describe("webcodecsEngine cancel before encoding starts", () => {
+  test("an abort while the conversion is being set up still cancels", async () => {
+    const file = await makeTestClip({ seconds: 2, width: 640, height: 360, audio: true });
+    const info = await probeWithMediabunny(file);
+    const controller = new AbortController();
+    const run = webcodecsEngine.encode(
+      job({
+        file,
+        info,
+        trim: null,
+        plan: { width: 320, height: 180, videoBps: 300_000, audioBps: 96_000, steppedDown: false },
+        signal: controller.signal,
+      })
+    );
+    controller.abort(); // lands during AAC check / Conversion.init, before execute()
+    await expect(run).rejects.toBeInstanceOf(ExportCanceledError);
+  });
+});
+
 describe("webcodecsEngine.precheck", () => {
   test("accepts a readable clip and rejects one Mediabunny cannot read", async () => {
     const file = await makeTestClip({ seconds: 1, width: 640, height: 360, audio: false });

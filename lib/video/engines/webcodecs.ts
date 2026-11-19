@@ -54,6 +54,7 @@ async function encode(job: EncodeJob): Promise<Blob> {
   if (signal.aborted) throw new ExportCanceledError();
   const wantAudio = plan.audioBps > 0 && info.hasAudio;
   if (wantAudio) await ensureAacEncoder();
+  if (signal.aborted) throw new ExportCanceledError();
 
   const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
   const output = new Output({
@@ -102,6 +103,11 @@ async function encode(job: EncodeJob): Promise<Blob> {
     const onAbort = () => void conversion.cancel();
     signal.addEventListener("abort", onAbort, { once: true });
     try {
+      // An abort during setup above fired before the listener existed.
+      if (signal.aborted) {
+        await conversion.cancel();
+        throw new ExportCanceledError();
+      }
       await conversion.execute();
     } catch (e) {
       if (e instanceof ConversionCanceledError || signal.aborted) throw new ExportCanceledError();
