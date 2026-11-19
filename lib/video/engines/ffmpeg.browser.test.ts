@@ -75,6 +75,33 @@ describe("ffmpegEngine.encode", () => {
   );
 
   test(
+    "a failed encode explains why in ffmpeg's own words, and the engine works again afterwards",
+    async () => {
+      const garbage = new File([crypto.getRandomValues(new Uint8Array(4096))], "broken.mp4");
+      const fakeInfo = {
+        durationSec: 2,
+        startSec: 0,
+        width: 320,
+        height: 180,
+        rotation: 0 as const,
+        videoCodec: "h264",
+        audioCodec: null,
+        hasAudio: false,
+        readableByMediabunny: false,
+      };
+      const plan = { width: 320, height: 180, videoBps: 200_000, audioBps: 0, steppedDown: false };
+      await expect(ffmpegEngine.encode(job({ file: garbage, info: fakeInfo, trim: null, plan }))).rejects.toThrow(
+        /Invalid data|could not find|moov atom/i
+      );
+
+      const good = await makeTestClip({ seconds: 1, width: 320, height: 180, audio: false });
+      const out = await ffmpegEngine.encode(job({ file: good, info: await probeWithFfmpeg(good), trim: null, plan }));
+      expect((await inspectMp4(out)).videoCodec).toBe("avc");
+    },
+    TIMEOUT
+  );
+
+  test(
     "aborting rejects with ExportCanceledError and the engine works again afterwards",
     async () => {
       const file = await makeTestClip({ seconds: 3, width: 640, height: 360, audio: true, noise: true });

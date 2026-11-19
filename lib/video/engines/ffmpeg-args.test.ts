@@ -8,6 +8,8 @@ describe("buildFfmpegArgs", () => {
     expect(buildFfmpegArgs({ inPath: "/in/input.mov", outPath: "/out.mp4", trim: { start: 2, end: 12 }, plan: PLAN })).toEqual([
       "-hide_banner", "-ss", "2", "-i", "/in/input.mov", "-t", "10",
       "-map", "0:v:0", "-map", "0:a:0?",
+      // Keep each frame's original timing — phone clips are often variable frame rate.
+      "-fps_mode", "passthrough",
       "-vf", "scale=1280:720:flags=bicubic,setsar=1,format=yuv420p",
       "-c:v", "libx264", "-preset", "veryfast", "-b:v", "1500000", "-maxrate", "1800000", "-bufsize", "3000000",
       "-c:a", "aac", "-b:a", "128000", "-ac", "2",

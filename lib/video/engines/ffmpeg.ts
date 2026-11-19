@@ -8,6 +8,8 @@ type DownloadListener = (loaded: number, total: number | null) => void;
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 const MOUNT = "/in";
 const OUT = "/out.mp4";
+/** How much of ffmpeg's log to keep for error messages. */
+const LOG_TAIL_LINES = 20;
 
 /** One shared ffmpeg instance; dropped (and rebuilt on next use) after a cancel terminates it. */
 let instance: Promise<FFmpeg> | null = null;
@@ -86,33 +88,47 @@ async function encode(job: EncodeJob): Promise<Blob> {
   if (signal.aborted) throw new ExportCanceledError();
 
   const duration = trim ? trim.end - trim.start : info.durationSec;
+  const tail: string[] = [];
   const onLog: LogEventCallback = ({ message }) => {
+    tail.push(message);
+    if (tail.length > LOG_TAIL_LINES) tail.shift();
     const t = parseFfmpegTime(message);
     if (t !== null && duration > 0) onProgress(Math.min(1, t / duration));
   };
   let terminated = false;
-  const onAbort = () => {
+  const discardInstance = () => {
     terminated = true;
     instance = null;
     ffmpeg.terminate();
   };
+  /** ffmpeg ran and exited non-zero: the instance is healthy, the input or settings were not. */
+  let cleanFailure = false;
 
   ffmpeg.on("log", onLog);
-  signal.addEventListener("abort", onAbort, { once: true });
+  signal.addEventListener("abort", discardInstance, { once: true });
   try {
     const code = await withInput(ffmpeg, file, (inPath) =>
       ffmpeg.exec(buildFfmpegArgs({ inPath, outPath: OUT, trim, plan }))
     );
-    if (code !== 0) throw new Error(`The backup engine failed (ffmpeg exit code ${code}).`);
+    if (code !== 0) {
+      cleanFailure = true;
+      throw new Error(`The backup engine failed (exit code ${code}):\n${tail.join("\n")}`);
+    }
     const data = await ffmpeg.readFile(OUT);
     await ffmpeg.deleteFile(OUT);
     if (typeof data === "string") throw new Error("The backup engine returned text instead of video.");
     return new Blob([data as BlobPart], { type: "video/mp4" });
   } catch (e) {
     if (terminated || signal.aborted) throw new ExportCanceledError();
+    if (cleanFailure) {
+      await ffmpeg.deleteFile(OUT).catch(() => {});
+    } else {
+      // The wasm itself failed (e.g. out of memory) — never reuse a broken instance.
+      discardInstance();
+    }
     throw e;
   } finally {
-    signal.removeEventListener("abort", onAbort);
+    signal.removeEventListener("abort", discardInstance);
     if (!terminated) ffmpeg.off("log", onLog);
   }
 }

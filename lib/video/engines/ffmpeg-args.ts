@@ -24,6 +24,8 @@ export function buildFfmpegArgs(a: {
     ...(trim ? ["-t", secs(trim.end - trim.start)] : []),
     "-map", "0:v:0",
     ...(withAudio ? ["-map", "0:a:0?"] : []),
+    // Keep each frame's original timing — phone clips are often variable frame rate.
+    "-fps_mode", "passthrough",
     "-vf", `scale=${plan.width}:${plan.height}:flags=bicubic,setsar=1,format=yuv420p`,
     "-c:v", "libx264", "-preset", "veryfast",
     "-b:v", String(plan.videoBps),
