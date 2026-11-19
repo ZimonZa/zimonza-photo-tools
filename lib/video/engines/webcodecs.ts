@@ -14,6 +14,8 @@ import {
 import type { EncodeJob, VideoEngine, VideoInfo } from "@/lib/video/engines/types";
 import { EngineUnsupportedError, ExportCanceledError } from "@/lib/video/errors";
 
+export type BitrateMode = "constant" | "variable";
+
 /** Read a clip's basics. Throws when Mediabunny can't read the container or finds no video. */
 export async function probeWithMediabunny(file: File): Promise<VideoInfo> {
   const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
@@ -49,6 +51,35 @@ function ensureAacEncoder(): Promise<void> {
   return aacReady;
 }
 
+interface Discarded {
+  reason: string;
+  track: { isVideoTrack(): boolean };
+}
+
+/**
+ * Constant bitrate tracks targets most closely, but not every device encoder offers it.
+ * When the video track can't be encoded in constant mode, set up again in variable mode.
+ */
+export async function initWithBitrateFallback<C extends { discardedTracks: readonly Discarded[] }>(
+  init: (mode: BitrateMode) => Promise<C>,
+  dispose: (c: C) => Promise<void>
+): Promise<{ conversion: C; mode: BitrateMode }> {
+  const constant = await init("constant");
+  const unencodable = constant.discardedTracks.some(
+    (d) => d.reason === "no_encodable_target_codec" && d.track.isVideoTrack()
+  );
+  if (!unencodable) return { conversion: constant, mode: "constant" };
+  await dispose(constant);
+  return { conversion: await init("variable"), mode: "variable" };
+}
+
+interface Attempt {
+  conversion: Conversion;
+  input: Input;
+  output: Output<Mp4OutputFormat, BufferTarget>;
+  discardedTracks: Conversion["discardedTracks"];
+}
+
 async function encode(job: EncodeJob): Promise<Blob> {
   const { file, info, trim, plan, signal, onProgress } = job;
   if (signal.aborted) throw new ExportCanceledError();
@@ -56,13 +87,10 @@ async function encode(job: EncodeJob): Promise<Blob> {
   if (wantAudio) await ensureAacEncoder();
   if (signal.aborted) throw new ExportCanceledError();
 
-  const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
-  const output = new Output({
-    format: new Mp4OutputFormat({ fastStart: "in-memory" }),
-    target: new BufferTarget(),
-  });
-
-  try {
+  // Each set-up attempt needs its own fresh input and output.
+  const setUp = async (mode: BitrateMode): Promise<Attempt> => {
+    const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+    const output = new Output({ format: new Mp4OutputFormat({ fastStart: "in-memory" }), target: new BufferTarget() });
     const conversion = await Conversion.init({
       input,
       output,
@@ -73,9 +101,8 @@ async function encode(job: EncodeJob): Promise<Blob> {
         height: plan.height,
         fit: "fill",
         codec: "avc",
-        // Constant mode tracks the requested bitrate far more closely (measured 1.00x vs 1.35x at 3 Mbps),
-        // which keeps target-size encodes to one or two passes.
-        quality: new Quality({ bitrate: plan.videoBps, bitrateMode: "constant" }),
+        // Constant mode tracks the requested bitrate far more closely (measured 1.00x vs 1.35x at 3 Mbps).
+        quality: new Quality({ bitrate: plan.videoBps, bitrateMode: mode }),
         forceTranscode: true,
         allowTransformationMetadata: false,
       },
@@ -89,7 +116,17 @@ async function encode(job: EncodeJob): Promise<Blob> {
           }
         : { discard: true },
     });
+    return { conversion, input, output, discardedTracks: conversion.discardedTracks };
+  };
+  const tearDown = async (a: Attempt) => {
+    await a.conversion.cancel().catch(() => {});
+    a.input.dispose();
+  };
 
+  const { conversion: attempt } = await initWithBitrateFallback(setUp, tearDown);
+  const { conversion, output } = attempt;
+
+  try {
     // A conversion can be "valid" while silently dropping a track we need (e.g. undecodable audio).
     const lost = conversion.discardedTracks.filter(
       (d) => d.reason !== "discarded_by_user" && (d.track.isVideoTrack() || (wantAudio && d.track.isAudioTrack()))
@@ -120,7 +157,7 @@ async function encode(job: EncodeJob): Promise<Blob> {
     if (!bytes) throw new Error("The fast engine produced no data.");
     return new Blob([bytes], { type: "video/mp4" });
   } finally {
-    input.dispose();
+    attempt.input.dispose();
   }
 }
 
@@ -133,7 +170,10 @@ export const webcodecsEngine: VideoEngine = {
     if (!info.readableByMediabunny) {
       return { ok: false, reason: "The fast engine can't read this file type." };
     }
-    if (!(await canEncodeVideo("avc", { width: plan.width, height: plan.height }))) {
+    const size = { width: plan.width, height: plan.height };
+    const canEncodeIn = (bitrateMode: BitrateMode) =>
+      canEncodeVideo("avc", { ...size, quality: new Quality({ bitrate: plan.videoBps, bitrateMode }) });
+    if (!(await canEncodeIn("constant")) && !(await canEncodeIn("variable"))) {
       return { ok: false, reason: `This browser can't encode H.264 at ${plan.width}×${plan.height}.` };
     }
     return { ok: true };
