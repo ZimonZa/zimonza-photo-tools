@@ -36,6 +36,15 @@ export function maxVideoBps(size: Size): number {
   return Math.round(bppBitrate(size, QUALITY_BPP.high));
 }
 
+/**
+ * Highest sensible video bitrate: "high" quality for the size, and never more than the source file
+ * itself used (re-encoding can't add quality, only bytes). Keeps at least half the source rate for video.
+ */
+export function videoCeilingBps(size: Size, sourceBps: number | null, audioBps: number): number {
+  const sourceCap = sourceBps ? Math.max(sourceBps - audioBps, sourceBps / 2) : Infinity;
+  return Math.round(Math.min(maxVideoBps(size), sourceCap));
+}
+
 /** Audio bitrate for a total (audio + video) budget in bits per second. */
 export function audioBpsForBudget(totalBps: number): number {
   if (totalBps >= 1_000_000) return 128_000;
@@ -49,12 +58,15 @@ export function planQuality(a: {
   hasAudio: boolean;
   muted: boolean;
   maxLongSide: number | null;
+  /** Average bitrate of the whole source file, when known. */
+  sourceBps?: number | null;
 }): EncodePlan {
   const size = capLongSide(a.source, a.maxLongSide);
+  const audioBps = a.muted || !a.hasAudio ? 0 : QUALITY_AUDIO_BPS[a.level];
   return {
     ...size,
-    videoBps: Math.round(bppBitrate(size, QUALITY_BPP[a.level])),
-    audioBps: a.muted || !a.hasAudio ? 0 : QUALITY_AUDIO_BPS[a.level],
+    videoBps: Math.round(Math.min(bppBitrate(size, QUALITY_BPP[a.level]), videoCeilingBps(size, a.sourceBps ?? null, audioBps))),
+    audioBps,
     steppedDown: false,
   };
 }
@@ -71,6 +83,8 @@ export function planTarget(a: {
   hasAudio: boolean;
   muted: boolean;
   maxLongSide: number | null;
+  /** Average bitrate of the whole source file, when known. */
+  sourceBps?: number | null;
 }): EncodePlan {
   const budgetBps = (a.targetBytes * 8 * FIRST_ATTEMPT_FILL) / a.durationSec;
   const audioBps = a.muted || !a.hasAudio ? 0 : audioBpsForBudget(budgetBps);
@@ -87,7 +101,7 @@ export function planTarget(a: {
     if (videoBudget >= bppBitrate(c, MIN_BPP)) {
       return {
         ...c,
-        videoBps: Math.floor(Math.min(videoBudget, maxVideoBps(c))),
+        videoBps: Math.floor(Math.min(videoBudget, videoCeilingBps(c, a.sourceBps ?? null, audioBps))),
         audioBps,
         steppedDown: c !== base,
       };

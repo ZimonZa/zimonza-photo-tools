@@ -42,9 +42,16 @@ function deps(webcodecs: FakeEngine, ffmpeg: FakeEngine, info: VideoInfo = INFO)
   return { probe: async () => info, engines: { webcodecs, ffmpeg } };
 }
 
+/** A file that reports `size` without allocating it — e.g. a 150 MB, 60 s 1080p camera original. */
+function sizedFile(name: string, size: number): File {
+  const file = new File([new Uint8Array(1)], name);
+  Object.defineProperty(file, "size", { value: size });
+  return file;
+}
+
 function recipe(partial: Partial<EditRecipe> = {}): EditRecipe {
   return {
-    file: new File([new Uint8Array(10)], "Trip.MOV"),
+    file: sizedFile("Trip.MOV", 150_000_000),
     trim: null,
     maxLongSide: null,
     muted: false,
@@ -143,6 +150,19 @@ describe("target size loop", () => {
     const ff = fakeEngine("ffmpeg", { sizes: [19_000_000] });
     const result = await exportVideo(recipe({ size: TARGET_20 }), {}, deps(wc, ff));
     expect(result.engine).toBe("ffmpeg");
+    expect(result.attempts).toBe(1);
+  });
+
+  test("a big target on a small clip doesn't inflate it", async () => {
+    // 5 MB, 40 s 720p clip, "under 20 MB": stay at the clip's own ~1 Mbps instead of filling 20 MB.
+    const wc = fakeEngine("webcodecs", { sizes: [4_900_000] });
+    const small = new File([new Uint8Array(5_000_000)], "wa.mp4");
+    const result = await exportVideo(
+      recipe({ file: small, size: TARGET_20 }),
+      {},
+      deps(wc, fakeEngine("ffmpeg"), { ...INFO, width: 1280, height: 720, durationSec: 40 })
+    );
+    expect(wc.jobs[0].plan.videoBps).toBe(872_000);
     expect(result.attempts).toBe(1);
   });
 

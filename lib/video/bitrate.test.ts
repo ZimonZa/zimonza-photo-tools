@@ -6,6 +6,7 @@ import {
   nextVideoBps,
   planQuality,
   planTarget,
+  videoCeilingBps,
 } from "@/lib/video/bitrate";
 import { TargetTooSmallError } from "@/lib/video/errors";
 import { MB } from "@/lib/video/recipe";
@@ -65,6 +66,37 @@ describe("planTarget", () => {
     expect(
       planTarget({ source: HD, durationSec: 60, targetBytes: 20 * MB, hasAudio: true, muted: false, maxLongSide: 1280 })
     ).toMatchObject({ width: 1280, height: 720, steppedDown: false });
+  });
+});
+
+describe("source bitrate ceiling", () => {
+  test("a big target on an already-compressed clip keeps the clip's own bitrate", () => {
+    // 5 MB, 40 s WhatsApp clip → 1 Mbps source; 1 Mbps - 128k audio = 872k video.
+    expect(
+      planTarget({
+        source: { width: 1280, height: 720 },
+        durationSec: 40,
+        targetBytes: 20 * MB,
+        hasAudio: true,
+        muted: false,
+        maxLongSide: null,
+        sourceBps: 1_000_000,
+      })
+    ).toEqual({ width: 1280, height: 720, videoBps: 872_000, audioBps: 128_000, steppedDown: false });
+  });
+
+  test("quality mode never exceeds the source bitrate either", () => {
+    expect(
+      planQuality({ source: HD, level: "high", hasAudio: true, muted: false, maxLongSide: null, sourceBps: 2_000_000 }).videoBps
+    ).toBe(1_872_000);
+  });
+
+  test("the ceiling keeps at least half the source bitrate for video", () => {
+    expect(videoCeilingBps({ width: 1280, height: 720 }, 200_000, 128_000)).toBe(100_000);
+  });
+
+  test("without a known source bitrate the ceiling is high quality", () => {
+    expect(videoCeilingBps(HD, null, 128_000)).toBe(6_220_800);
   });
 });
 

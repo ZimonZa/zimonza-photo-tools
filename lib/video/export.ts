@@ -1,10 +1,10 @@
 import {
   judgeAttempt,
   MAX_TARGET_ATTEMPTS,
-  maxVideoBps,
   nextVideoBps,
   planQuality,
   planTarget,
+  videoCeilingBps,
   type EncodePlan,
 } from "@/lib/video/bitrate";
 import type { EngineId, EncodeJob, VideoEngine, VideoInfo } from "@/lib/video/engines/types";
@@ -87,6 +87,8 @@ export async function exportVideo(
   const trim = normalizeTrim(recipe.trim, info.durationSec);
   const durationSec = trim ? trim.end - trim.start : info.durationSec;
   const source = { width: info.width, height: info.height };
+  // Whole-file average bitrate: re-encoding never needs more than the source already spent.
+  const sourceBps = info.durationSec > 0 ? (recipe.file.size * 8) / info.durationSec : null;
   const initialPlan =
     recipe.size.kind === "target"
       ? planTarget({
@@ -96,6 +98,7 @@ export async function exportVideo(
           hasAudio: info.hasAudio,
           muted: recipe.muted,
           maxLongSide: recipe.maxLongSide,
+          sourceBps,
         })
       : planQuality({
           source,
@@ -103,6 +106,7 @@ export async function exportVideo(
           hasAudio: info.hasAudio,
           muted: recipe.muted,
           maxLongSide: recipe.maxLongSide,
+          sourceBps,
         });
 
   const targetBytes = recipe.size.kind === "target" ? recipe.size.bytes : null;
@@ -118,7 +122,7 @@ export async function exportVideo(
     };
     return targetBytes === null
       ? singlePass(engine, baseJob, initialPlan, status)
-      : targetLoop(engine, baseJob, initialPlan, targetBytes, durationSec, status, checkAbort);
+      : targetLoop(engine, baseJob, initialPlan, targetBytes, durationSec, sourceBps, status, checkAbort);
   };
 
   const choice = options.engine ?? "auto";
@@ -178,9 +182,11 @@ async function targetLoop(
   initialPlan: EncodePlan,
   targetBytes: number,
   durationSec: number,
+  sourceBps: number | null,
   status: (s: ExportStatus) => void,
   checkAbort: () => void
 ): Promise<EngineRun> {
+  const ceiling = (p: EncodePlan) => videoCeilingBps(p, sourceBps, p.audioBps);
   let plan = initialPlan;
   let best: { blob: Blob; plan: EncodePlan } | null = null;
   let attempts = 0;
@@ -193,7 +199,7 @@ async function targetLoop(
     const verdict = judgeAttempt(blob.size, targetBytes);
     if (verdict !== "over" && (!best || blob.size > best.blob.size)) best = { blob, plan };
     if (verdict === "ok") break;
-    if (verdict === "under-filled" && plan.videoBps >= maxVideoBps(plan)) break;
+    if (verdict === "under-filled" && plan.videoBps >= ceiling(plan)) break;
 
     let next = nextVideoBps({
       prevVideoBps: plan.videoBps,
@@ -202,7 +208,7 @@ async function targetLoop(
       audioBps: plan.audioBps,
       durationSec,
     });
-    if (verdict === "under-filled") next = Math.min(next, maxVideoBps(plan));
+    if (verdict === "under-filled") next = Math.min(next, ceiling(plan));
     plan = { ...plan, videoBps: next };
   }
 
