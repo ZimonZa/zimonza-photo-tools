@@ -10,6 +10,8 @@ export interface TestClipOptions {
   rotation?: Rotation;
   /** Random noise frames — hard to compress, so encoders actually use the bitrate they're given. */
   noise?: boolean;
+  /** First video timestamp in seconds (camera / broadcast files often don't start at 0). Video-only clips. */
+  startAt?: number;
 }
 
 const FPS = 30;
@@ -51,7 +53,7 @@ export async function makeTestClip(o: TestClipOptions): Promise<File> {
         ctx.fillStyle = "#fff";
         ctx.fillRect((i * 8) % o.width, o.height / 4, o.width / 8, o.height / 2);
       }
-      await video.add(i / FPS, 1 / FPS);
+      await video.add((o.startAt ?? 0) + i / FPS, 1 / FPS);
     }
     if (audio) {
       const length = Math.round(((end - second * FPS) / FPS) * SAMPLE_RATE);

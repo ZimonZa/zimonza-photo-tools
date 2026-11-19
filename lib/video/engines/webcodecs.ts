@@ -23,8 +23,11 @@ export async function probeWithMediabunny(file: File): Promise<VideoInfo> {
     const video = await input.getPrimaryVideoTrack();
     if (!video) throw new EngineUnsupportedError("No video track found.");
     const audio = await input.getPrimaryAudioTrack();
+    // computeDuration() is the last end timestamp, not the length, when the file doesn't start at 0.
+    const startSec = Math.max(0, await input.getFirstTimestamp());
     return {
-      durationSec: await input.computeDuration(),
+      durationSec: (await input.computeDuration()) - startSec,
+      startSec,
       width: video.displayWidth,
       height: video.displayHeight,
       rotation: video.rotation,
@@ -95,7 +98,8 @@ async function encode(job: EncodeJob): Promise<Blob> {
       input,
       output,
       tracks: "primary",
-      ...(trim ? { trim: { start: trim.start, end: trim.end } } : {}),
+      // Mediabunny trims in absolute file time; our trims are relative to the clip's start.
+      ...(trim ? { trim: { start: info.startSec + trim.start, end: info.startSec + trim.end } } : {}),
       video: {
         width: plan.width,
         height: plan.height,

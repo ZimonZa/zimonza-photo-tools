@@ -4,9 +4,13 @@ import type { TrimRange } from "@/lib/video/recipe";
 
 export type EngineId = "webcodecs" | "ffmpeg";
 
-/** What we know about an input clip. `width`/`height` are the display size (rotation applied). */
+/**
+ * What we know about an input clip. `width`/`height` are the display size (rotation applied).
+ * `durationSec` is the clip's length; trims are relative to `startSec`, the first timestamp in the file.
+ */
 export interface VideoInfo {
   durationSec: number;
+  startSec: number;
   width: number;
   height: number;
   rotation: Rotation;

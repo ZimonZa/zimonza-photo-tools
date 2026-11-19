@@ -109,6 +109,21 @@ describe("webcodecsEngine.encode", () => {
   });
 });
 
+describe("clips whose timeline doesn't start at 0", () => {
+  test("report their real length and trim relative to their own start", async () => {
+    const file = await makeTestClip({ seconds: 3, width: 320, height: 180, audio: false, startAt: 1 });
+    const info = await probeWithMediabunny(file);
+    expect(info.startSec).toBeCloseTo(1, 1);
+    expect(info.durationSec).toBeCloseTo(3, 1);
+    const out = await webcodecsEngine.encode(
+      job({ file, info, trim: { start: 0.5, end: 1.5 }, plan: { width: 320, height: 180, videoBps: 300_000, audioBps: 0, steppedDown: false } })
+    );
+    const m = await inspectMp4(out);
+    expect(m.durationSec).toBeGreaterThan(0.9);
+    expect(m.durationSec).toBeLessThan(1.1);
+  });
+});
+
 describe("webcodecsEngine cancel before encoding starts", () => {
   test("an abort while the conversion is being set up still cancels", async () => {
     const file = await makeTestClip({ seconds: 2, width: 640, height: 360, audio: true });

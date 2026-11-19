@@ -49,6 +49,7 @@ describe("parseFfmpegProbe", () => {
   test("reads a rotated HEVC phone clip as display size", () => {
     expect(parseFfmpegProbe(HEVC_ROTATED)).toEqual({
       durationSec: 12.34,
+      startSec: 0,
       width: 1080,
       height: 1920,
       rotation: 90,
@@ -67,6 +68,7 @@ describe("parseFfmpegProbe", () => {
     ].join("\n");
     expect(parseFfmpegProbe(log)).toEqual({
       durationSec: 60,
+      startSec: 0,
       width: 720,
       height: 1280,
       rotation: 270,
@@ -74,6 +76,10 @@ describe("parseFfmpegProbe", () => {
       audioCodec: null,
       hasAudio: false,
     });
+  });
+
+  test("reads a non-zero container start time", () => {
+    expect(parseFfmpegProbe(HEVC_ROTATED.replace("start: 0.000000", "start: 1.400000"))?.startSec).toBe(1.4);
   });
 
   test("returns null when there is no video stream", () => {

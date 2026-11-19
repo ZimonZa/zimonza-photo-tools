@@ -55,7 +55,9 @@ export function parseFfmpegProbe(log: string): Omit<VideoInfo, "readableByMediab
   const video = /Stream #\d+:\d+.*?: Video: (\w+).*?[ ,](\d{2,5})x(\d{2,5})[ ,[]/.exec(log);
   if (!video) return null;
 
+  // ffmpeg's Duration already excludes the start time, and its -ss is relative to it.
   const duration = /Duration:\s*(\d+):(\d{2}):(\d{2}(?:\.\d+)?)/.exec(log);
+  const start = /Duration:[^\n]*?start:\s*(-?[\d.]+)/.exec(log);
   const audio = /Stream #\d+:\d+.*?: Audio: (\w+)/.exec(log);
 
   // displaymatrix gives the counter-clockwise angle; legacy `rotate` metadata is already clockwise.
@@ -66,6 +68,7 @@ export function parseFfmpegProbe(log: string): Omit<VideoInfo, "readableByMediab
   const size = displaySize({ width: Number(video[2]), height: Number(video[3]) }, rotation);
   return {
     durationSec: duration ? hmsToSeconds(duration[1], duration[2], duration[3]) : 0,
+    startSec: start ? Number(start[1]) : 0,
     width: size.width,
     height: size.height,
     rotation,

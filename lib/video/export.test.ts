@@ -7,6 +7,7 @@ import { MB, type EditRecipe } from "@/lib/video/recipe";
 
 const INFO: VideoInfo = {
   durationSec: 60,
+  startSec: 0,
   width: 1920,
   height: 1080,
   rotation: 0,
