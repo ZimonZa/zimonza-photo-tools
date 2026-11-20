@@ -6,11 +6,15 @@ import { formatBytes } from "@/lib/utils";
 import { ExportCanceledError, InvalidTrimError, TargetTooSmallError } from "@/lib/video/errors";
 import type { VideoInfo } from "@/lib/video/engines/types";
 import type { ExportResult, ExportStatus } from "@/lib/video/export";
-import { BASE_RECIPE, MB, type EditRecipe, type QualityLevel } from "@/lib/video/recipe";
+import type { FitMode, OutputFrame } from "@/lib/video/frame";
+import type { Rotation } from "@/lib/video/geometry";
+import { applyPreset, VIDEO_PRESETS, type PresetId } from "@/lib/video/presets";
+import { BASE_RECIPE, MB, type Container, type EditRecipe, type QualityLevel } from "@/lib/video/recipe";
 
 type EngineChoice = "auto" | "webcodecs" | "ffmpeg";
 type MaxLong = "original" | "1920" | "1280" | "854";
 type SizeKind = "target" | "quality";
+type FrameKind = "source" | "percent" | "exact";
 
 const ACCEPT = "video/*,.mov,.mkv,.avi,.wmv,.flv,.3gp,.m4v";
 
@@ -41,6 +45,16 @@ function describeInfo(i: VideoInfo): string {
   return `${i.videoCodec ?? "?"} + ${i.audioCodec ?? "no audio"} · ${i.width}×${i.height} · rotation ${i.rotation} · ${i.durationSec.toFixed(2)} s (starts at ${i.startSec.toFixed(2)} s) · fast engine can read: ${i.readableByMediabunny ? "yes" : "no"}`;
 }
 
+function describeFrame(f: OutputFrame): string {
+  if (f.kind === "source") return `original (max long side ${f.maxLongSide ?? "none"})`;
+  if (f.kind === "percent") return `${f.percent}%`;
+  return `${f.width}x${f.height} (${f.fit === "blur" ? "blurred background" : "crop to fill"})`;
+}
+
+function describeCrop(r: EditRecipe): string {
+  return r.crop ? `${r.crop.width}x${r.crop.height} at ${r.crop.left},${r.crop.top}` : "none";
+}
+
 /** Settings frozen when Run is pressed, so reports describe the run, not the current form. */
 interface RunSettings {
   summary: string;
@@ -63,6 +77,25 @@ export function EngineLab() {
   const [targetMb, setTargetMb] = useState<number | null>(20);
   const [level, setLevel] = useState<QualityLevel>("balanced");
   const [engine, setEngine] = useState<EngineChoice>("auto");
+  const [preset, setPreset] = useState<PresetId>("custom");
+  const [rotate, setRotate] = useState<Rotation>(0);
+  const [flipH, setFlipH] = useState(false);
+  const [flipV, setFlipV] = useState(false);
+  const [cropLeft, setCropLeft] = useState("");
+  const [cropTop, setCropTop] = useState("");
+  const [cropWidth, setCropWidth] = useState("");
+  const [cropHeight, setCropHeight] = useState("");
+  const [frameKind, setFrameKind] = useState<FrameKind>("source");
+  const [percent, setPercent] = useState<number | null>(50);
+  const [exactW, setExactW] = useState<number | null>(1080);
+  const [exactH, setExactH] = useState<number | null>(1920);
+  const [fit, setFit] = useState<FitMode>("cover");
+  const [container, setContainer] = useState<Container>("mp4");
+  const [previewAt, setPreviewAt] = useState("0");
+  const [previewing, setPreviewing] = useState(false);
+  const [sampleUrl, setSampleUrl] = useState<string | null>(null);
+  const [sampleLabel, setSampleLabel] = useState<string | null>(null);
+  const [sampleNote, setSampleNote] = useState<string | null>(null);
 
   const [running, setRunning] = useState(false);
   const [statusLog, setStatusLog] = useState<string[]>([]);
@@ -77,6 +110,7 @@ export function EngineLab() {
   const [runSettings, setRunSettings] = useState<RunSettings | null>(null);
 
   const controllerRef = useRef<AbortController | null>(null);
+  const previewControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -98,6 +132,12 @@ export function EngineLab() {
     if (resultUrl) URL.revokeObjectURL(resultUrl);
   }, [resultUrl]);
 
+  useEffect(() => () => {
+    if (sampleUrl) URL.revokeObjectURL(sampleUrl);
+  }, [sampleUrl]);
+
+  useEffect(() => () => previewControllerRef.current?.abort(), []);
+
   useEffect(() => {
     if (!running) return;
     const started = Date.now();
@@ -105,21 +145,120 @@ export function EngineLab() {
     return () => clearInterval(id);
   }, [running]);
 
-  async function run() {
-    if (!file) return;
+  function parseCrop(text: string): number | null {
+    if (text.trim() === "") return null;
+    const n = Number(text);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  }
+
+  const cropTexts = [cropLeft, cropTop, cropWidth, cropHeight];
+  const cropValues = cropTexts.map(parseCrop);
+  const cropAny = cropTexts.some((t) => t.trim() !== "");
+  const cropInvalid =
+    cropAny && (cropTexts.slice(0, 2).some((t, i) => t.trim() !== "" && cropValues[i] === null) || !cropValues[2] || !cropValues[3]);
+  const exactInvalid = frameKind === "exact" && (!exactW || !exactH);
+  const formError = exactInvalid
+    ? "Exact size needs both width and height."
+    : cropInvalid
+      ? "Crop needs a width and a height (left and top default to 0)."
+      : null;
+
+  function currentFrame(): OutputFrame | null {
+    if (frameKind === "source") return { kind: "source", maxLongSide: maxLong === "original" ? null : Number(maxLong) };
+    if (frameKind === "percent") return { kind: "percent", percent: percent ?? 100 };
+    if (!exactW || !exactH) return null;
+    return { kind: "exact", width: exactW, height: exactH, fit };
+  }
+
+  function buildRecipe(f: File): EditRecipe | null {
+    if (formError) return null;
+    const frame = currentFrame();
+    if (!frame) return null;
     const start = parseSeconds(trimStart);
     const end = parseSeconds(trimEnd);
-    const recipe: EditRecipe = {
+    return {
       ...BASE_RECIPE,
-      file,
+      file: f,
       trim: start !== null || end !== null ? { start: start ?? 0, end: end ?? Number.MAX_SAFE_INTEGER } : null,
-      frame: { kind: "source", maxLongSide: maxLong === "original" ? null : Number(maxLong) },
+      frame,
       muted,
       size: sizeKind === "target" ? { kind: "target", bytes: (targetMb ?? 20) * MB } : { kind: "quality", level },
+      rotate,
+      flipH,
+      flipV,
+      crop: cropAny
+        ? { left: cropValues[0] ?? 0, top: cropValues[1] ?? 0, width: cropValues[2] ?? 0, height: cropValues[3] ?? 0 }
+        : null,
+      container,
     };
+  }
+
+  function choosePreset(id: PresetId) {
+    setPreset(id);
+    const p = VIDEO_PRESETS.find((x) => x.id === id);
+    if (!p) return;
+    const base: EditRecipe = {
+      ...BASE_RECIPE,
+      file: file ?? new File([], "preset"),
+      frame: currentFrame() ?? BASE_RECIPE.frame,
+      container,
+      size: sizeKind === "target" ? { kind: "target", bytes: (targetMb ?? 10) * MB } : { kind: "quality", level },
+    };
+    const next = applyPreset(base, p, targetMb ?? 10);
+    setContainer(next.container);
+    const fr = next.frame;
+    setFrameKind(fr.kind);
+    if (fr.kind === "source") setMaxLong(fr.maxLongSide === null ? "original" : (String(fr.maxLongSide) as MaxLong));
+    if (fr.kind === "percent") setPercent(fr.percent);
+    if (fr.kind === "exact") {
+      setExactW(fr.width);
+      setExactH(fr.height);
+      setFit(fr.fit);
+    }
+    if (next.size.kind === "target") {
+      setSizeKind("target");
+      setTargetMb(next.size.bytes / MB);
+    } else {
+      setSizeKind("quality");
+      setLevel(next.size.level);
+    }
+  }
+
+  async function preview() {
+    if (!file) return;
+    const recipe = buildRecipe(file);
+    if (!recipe) return;
+    const controller = new AbortController();
+    previewControllerRef.current = controller;
+    setPreviewing(true);
+    setSampleUrl(null);
+    setSampleLabel(null);
+    setSampleNote("Making a sample…");
+    try {
+      const { previewSample } = await import("@/lib/video/export");
+      const r = await previewSample(recipe, parseSeconds(previewAt) ?? 0, { signal: controller.signal });
+      if (!r) {
+        setSampleNote("Quality preview isn't available on this device (fast engine can't run)");
+      } else {
+        setSampleUrl(URL.createObjectURL(r.blob));
+        setSampleLabel(`Sample — estimated final size ${mb(r.estimatedBytes)}`);
+        setSampleNote(null);
+      }
+    } catch (e) {
+      setSampleNote(e instanceof ExportCanceledError ? "Canceled." : e instanceof Error ? `${e.name}: ${e.message}` : String(e));
+    } finally {
+      setPreviewing(false);
+      previewControllerRef.current = null;
+    }
+  }
+
+  async function run() {
+    if (!file) return;
+    const recipe = buildRecipe(file);
+    if (!recipe) return;
 
     setRunSettings({
-      summary: `file ${file.name} (${file.size} bytes) · trim ${trimStart || "-"}..${trimEnd || "-"} · max long side ${maxLong} · muted ${muted} · ${sizeKind === "target" ? `target ${targetMb ?? 20} MB` : `quality ${level}`} · engine ${engine}`,
+      summary: `file ${file.name} (${file.size} bytes) · preset ${preset} · trim ${trimStart || "-"}..${trimEnd || "-"} · rotate ${recipe.rotate} · flip H ${recipe.flipH} / V ${recipe.flipV} · crop ${describeCrop(recipe)} · frame ${describeFrame(recipe.frame)} · format ${recipe.container} · muted ${muted} · ${sizeKind === "target" ? `target ${targetMb ?? 20} MB` : `quality ${level}`} · engine ${engine}`,
       targetBytes: recipe.size.kind === "target" ? recipe.size.bytes : null,
     });
     setProbed(null);
@@ -141,6 +280,13 @@ export function EngineLab() {
         engine,
         signal: controller.signal,
         onProgress: setProgress,
+        confirmFallback:
+          engine === "auto"
+            ? async ({ estimatedSec }) =>
+                window.confirm(
+                  `The fast engine can't do this on your device. The backup engine will take about ${Math.max(1, Math.round(estimatedSec / 60))} min. Continue?`
+                )
+            : undefined,
         onStatus: (s) => {
           if (s.phase === "probed") setProbed(s.info);
           setStatusLog((log) => {
@@ -201,6 +347,8 @@ export function EngineLab() {
     }
   }
 
+  const busy = running || previewing;
+
   return (
     <div className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
       <div className="glass space-y-5 rounded-2xl p-4">
@@ -214,6 +362,17 @@ export function EngineLab() {
           {file && <p className="text-xs text-muted-foreground">{file.name} · {formatBytes(file.size)}</p>}
         </FieldGroup>
 
+        <FieldGroup title="Preset">
+          <SelectField<PresetId>
+            value={preset}
+            onChange={choosePreset}
+            options={VIDEO_PRESETS.map((p) => ({
+              value: p.id,
+              label: p.id === "form" ? `Form upload (under ${targetMb ?? 10} MB)` : p.label,
+            }))}
+          />
+        </FieldGroup>
+
         <FieldGroup title="Trim (seconds, optional)">
           <div className="grid grid-cols-2 gap-3">
             <DecimalField label="Start" value={trimStart} onChange={setTrimStart} />
@@ -221,16 +380,82 @@ export function EngineLab() {
           </div>
         </FieldGroup>
 
-        <FieldGroup title="Size">
-          <SelectField<MaxLong>
-            label="Max long side"
-            value={maxLong}
-            onChange={setMaxLong}
+        <FieldGroup title="Rotate and flip">
+          <Segmented<string>
+            value={String(rotate)}
+            onChange={(v) => setRotate(Number(v) as Rotation)}
             options={[
-              { value: "original", label: "Original" },
-              { value: "1920", label: "1920 px" },
-              { value: "1280", label: "1280 px" },
-              { value: "854", label: "854 px" },
+              { value: "0", label: "0°" },
+              { value: "90", label: "90°" },
+              { value: "180", label: "180°" },
+              { value: "270", label: "270°" },
+            ]}
+          />
+          <Toggle label="Flip horizontal" checked={flipH} onChange={setFlipH} />
+          <Toggle label="Flip vertical" checked={flipV} onChange={setFlipV} />
+        </FieldGroup>
+
+        <FieldGroup title="Crop (px, optional)">
+          <div className="grid grid-cols-2 gap-3">
+            <DecimalField label="Crop left" value={cropLeft} onChange={setCropLeft} />
+            <DecimalField label="Crop top" value={cropTop} onChange={setCropTop} />
+            <DecimalField label="Crop width" value={cropWidth} onChange={setCropWidth} />
+            <DecimalField label="Crop height" value={cropHeight} onChange={setCropHeight} />
+          </div>
+        </FieldGroup>
+
+        <FieldGroup title="Output size">
+          <Segmented<FrameKind>
+            value={frameKind}
+            onChange={setFrameKind}
+            options={[
+              { value: "source", label: "Original" },
+              { value: "percent", label: "Percent" },
+              { value: "exact", label: "Exact" },
+            ]}
+          />
+          {frameKind === "source" && (
+            <SelectField<MaxLong>
+              label="Max long side"
+              value={maxLong}
+              onChange={setMaxLong}
+              options={[
+                { value: "original", label: "Original" },
+                { value: "1920", label: "1920 px" },
+                { value: "1280", label: "1280 px" },
+                { value: "854", label: "854 px" },
+              ]}
+            />
+          )}
+          {frameKind === "percent" && (
+            <NumberField label="Percent of picture size" value={percent} onChange={setPercent} suffix="%" />
+          )}
+          {frameKind === "exact" && (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <NumberField label="Width" value={exactW} onChange={setExactW} suffix="px" />
+                <NumberField label="Height" value={exactH} onChange={setExactH} suffix="px" />
+              </div>
+              <Segmented<FitMode>
+                value={fit}
+                onChange={setFit}
+                options={[
+                  { value: "cover", label: "Crop to fill" },
+                  { value: "blur", label: "Blurred background" },
+                ]}
+              />
+            </>
+          )}
+          {formError && <p className="text-xs text-red-400">{formError}</p>}
+        </FieldGroup>
+
+        <FieldGroup title="Format and quality">
+          <Segmented<Container>
+            value={container}
+            onChange={setContainer}
+            options={[
+              { value: "mp4", label: "MP4" },
+              { value: "webm", label: "WebM" },
             ]}
           />
           <Segmented<SizeKind>
@@ -257,6 +482,13 @@ export function EngineLab() {
           <Toggle label="Mute" checked={muted} onChange={setMuted} />
         </FieldGroup>
 
+        <FieldGroup title="Preview quality">
+          <DecimalField label="At second" value={previewAt} onChange={setPreviewAt} />
+          <Button onClick={preview} disabled={!file || busy || formError !== null} className="w-full">
+            {previewing ? "Making sample…" : "Preview quality"}
+          </Button>
+        </FieldGroup>
+
         <FieldGroup title="Engine">
           <SelectField<EngineChoice>
             value={engine}
@@ -276,7 +508,7 @@ export function EngineLab() {
           </p>
         )}
         <div className="flex gap-2">
-          <Button variant="primary" onClick={run} disabled={!file || running} className="flex-1">
+          <Button variant="primary" onClick={run} disabled={!file || busy || formError !== null} className="flex-1">
             {running ? "Running…" : "Run"}
           </Button>
           <Button onClick={() => controllerRef.current?.abort()} disabled={!running}>
@@ -299,6 +531,18 @@ export function EngineLab() {
             ))}
           </ul>
         </div>
+
+        {(sampleNote || (sampleUrl && sampleLabel)) && (
+          <div className="space-y-2" data-testid="sample">
+            {sampleNote && <p className="text-sm text-muted-foreground">{sampleNote}</p>}
+            {sampleUrl && sampleLabel && (
+              <>
+                <p className="text-sm font-medium">{sampleLabel}</p>
+                <video src={sampleUrl} controls playsInline className="max-h-[40vh] w-full rounded-xl bg-black" />
+              </>
+            )}
+          </div>
+        )}
 
         {error && <p className="rounded-xl bg-red-500/10 p-3 text-sm text-red-400">{error}</p>}
 
