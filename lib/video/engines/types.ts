@@ -22,7 +22,7 @@ export interface VideoInfo {
   readableByMediabunny: boolean;
 }
 
-export type SupportCheck = { ok: true } | { ok: false; reason: string };
+export type SupportCheck = { ok: true } | { ok: false; reason: string; smallerMayWork?: boolean };
 
 /** One encode pass. Engines reject with `ExportCanceledError` when `signal` aborts. */
 export interface EncodeJob {

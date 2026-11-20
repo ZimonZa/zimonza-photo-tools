@@ -4,11 +4,14 @@ import {
   nextVideoBps,
   planQuality,
   planTarget,
+  STEP_DOWN_SHORT_SIDES,
   videoCeilingBps,
   type EncodePlan,
 } from "@/lib/video/bitrate";
+import { estimateBackupSeconds, isMobileDevice } from "@/lib/video/estimate";
 import { resolveFrame } from "@/lib/video/frame";
 import type { EngineId, EncodeJob, VideoEngine, VideoInfo } from "@/lib/video/engines/types";
+import { scaleToShortSide, type Size } from "@/lib/video/geometry";
 import { ExportCanceledError, TargetNotReachedError } from "@/lib/video/errors";
 import { normalizeTrim, outputFileName, type EditRecipe } from "@/lib/video/recipe";
 
@@ -17,7 +20,9 @@ export type ExportStatus =
   | { phase: "probed"; info: VideoInfo }
   | { phase: "loading-engine"; engine: "ffmpeg"; loadedBytes: number; totalBytes: number | null }
   | { phase: "encoding"; engine: EngineId; attempt: number }
-  | { phase: "fallback"; reason: string };
+  | { phase: "smaller"; width: number; height: number; reason: string }
+  | { phase: "probe-fallback"; reason: string }
+  | { phase: "fallback"; reason: string; estimatedSec: number };
 
 export interface ExportOptions {
   /** "auto" (default) prefers WebCodecs and falls back to ffmpeg once. A forced engine never falls back. */
@@ -26,6 +31,8 @@ export interface ExportOptions {
   /** Progress of the current pass, 0..1. */
   onProgress?(p: number): void;
   onStatus?(s: ExportStatus): void;
+  /** Auto mode asks before every run on the slow backup engine; false cancels the export. */
+  confirmFallback?(f: { reason: string; estimatedSec: number }): Promise<boolean>;
 }
 
 export interface ExportResult {
@@ -45,6 +52,8 @@ type DownloadListener = (loaded: number, total: number | null) => void;
 export interface ExportDeps {
   probe(file: File, onEngineDownload?: DownloadListener, onFallback?: (reason: string) => void): Promise<VideoInfo>;
   engines: Record<EngineId, VideoEngine>;
+  /** Defaults to `isMobileDevice`. */
+  isMobile?: () => boolean;
 }
 
 /** Probe with the fast reader; when it can't read the file, say why and use ffmpeg's. */
@@ -94,7 +103,7 @@ export async function exportVideo(
   checkAbort();
   const d = deps ?? (await loadDefaultDeps());
   status({ phase: "probing" });
-  const info = await d.probe(recipe.file, onEngineDownload, (reason) => status({ phase: "fallback", reason }));
+  const info = await d.probe(recipe.file, onEngineDownload, (reason) => status({ phase: "probe-fallback", reason }));
   status({ phase: "probed", info });
   checkAbort();
 
@@ -109,10 +118,10 @@ export async function exportVideo(
   const source = base;
   // Whole-file average bitrate: re-encoding never needs more than the source already spent.
   const sourceBps = info.durationSec > 0 ? (recipe.file.size * 8) / info.durationSec : null;
-  const initialPlan =
+  const planFor = (src: Size): EncodePlan =>
     recipe.size.kind === "target"
       ? planTarget({
-          source,
+          source: src,
           durationSec,
           targetBytes: recipe.size.bytes,
           hasAudio: info.hasAudio,
@@ -121,17 +130,18 @@ export async function exportVideo(
           sourceBps,
         })
       : planQuality({
-          source,
+          source: src,
           level: recipe.size.level,
           hasAudio: info.hasAudio,
           muted: recipe.muted,
           maxLongSide: null,
           sourceBps,
         });
+  const initialPlan = planFor(source);
 
   const targetBytes = recipe.size.kind === "target" ? recipe.size.bytes : null;
 
-  const runOn = async (engine: VideoEngine): Promise<EngineRun> => {
+  const runOn = async (engine: VideoEngine, startPlan: EncodePlan): Promise<EngineRun> => {
     const baseJob: Omit<EncodeJob, "plan"> = {
       file: recipe.file,
       info,
@@ -143,34 +153,55 @@ export async function exportVideo(
       onEngineDownload,
     };
     return targetBytes === null
-      ? singlePass(engine, baseJob, initialPlan, status)
-      : targetLoop(engine, baseJob, initialPlan, targetBytes, durationSec, sourceBps, status, checkAbort);
+      ? singlePass(engine, baseJob, startPlan, status)
+      : targetLoop(engine, baseJob, startPlan, targetBytes, durationSec, sourceBps, status, checkAbort);
   };
 
   const choice = options.engine ?? "auto";
-  let engineId: EngineId;
+  let engineId: EngineId = "webcodecs";
   let run: EngineRun;
+
+  const isMobile = d.isMobile ?? isMobileDevice;
+  const runBackup = async (reason: string, plan: EncodePlan): Promise<EngineRun> => {
+    const estimatedSec = estimateBackupSeconds(durationSec, plan, isMobile());
+    status({ phase: "fallback", reason, estimatedSec });
+    if (options.confirmFallback && !(await options.confirmFallback({ reason, estimatedSec }))) {
+      throw new ExportCanceledError();
+    }
+    checkAbort();
+    engineId = "ffmpeg";
+    return runOn(d.engines.ffmpeg, plan);
+  };
 
   if (choice !== "auto") {
     engineId = choice;
-    run = await runOn(d.engines[choice]);
+    run = await runOn(d.engines[choice], initialPlan);
   } else {
-    const check = await d.engines.webcodecs.precheck(info, initialPlan);
+    let plan = initialPlan;
+    let check = await d.engines.webcodecs.precheck(info, plan);
+    if (!check.ok && check.smallerMayWork) {
+      const baseShort = Math.min(base.width, base.height);
+      for (const s of STEP_DOWN_SHORT_SIDES.filter((x) => x < baseShort)) {
+        const smaller = { ...planFor(scaleToShortSide(base, s)), steppedDown: true };
+        const c = await d.engines.webcodecs.precheck(info, smaller);
+        if (c.ok) {
+          status({ phase: "smaller", width: smaller.width, height: smaller.height, reason: check.reason });
+          plan = smaller;
+          check = c;
+          break;
+        }
+      }
+    }
     if (check.ok) {
       try {
         engineId = "webcodecs";
-        run = await runOn(d.engines.webcodecs);
+        run = await runOn(d.engines.webcodecs, plan);
       } catch (e) {
         if (e instanceof ExportCanceledError) throw e;
-        status({ phase: "fallback", reason: e instanceof Error ? e.message : String(e) });
-        checkAbort();
-        engineId = "ffmpeg";
-        run = await runOn(d.engines.ffmpeg);
+        run = await runBackup(e instanceof Error ? e.message : String(e), plan);
       }
     } else {
-      status({ phase: "fallback", reason: check.reason });
-      engineId = "ffmpeg";
-      run = await runOn(d.engines.ffmpeg);
+      run = await runBackup(check.reason, plan);
     }
   }
 

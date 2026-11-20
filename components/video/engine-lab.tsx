@@ -28,8 +28,12 @@ function describeStatus(s: ExportStatus): string {
       return `Downloading backup engine… ${mb(s.loadedBytes)} of ${s.totalBytes ? mb(s.totalBytes) : "~32 MB"}`;
     case "encoding":
       return `Encoding with the ${s.engine === "webcodecs" ? "fast" : "backup"} engine — pass ${s.attempt}`;
+    case "smaller":
+      return `Lowered to ${s.width}×${s.height}: ${s.reason}`;
+    case "probe-fallback":
+      return `Reading with the backup engine: ${s.reason}`;
     case "fallback":
-      return `Switching to the backup engine: ${s.reason}`;
+      return `Switching to the backup engine (~${Math.max(1, Math.round(s.estimatedSec / 60))} min): ${s.reason}`;
   }
 }
 

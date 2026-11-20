@@ -15,6 +15,8 @@ export const RETRY_FILL = 0.95;
 /** A result below this share of the target is worth another, bigger pass. */
 export const MIN_FILL = 0.9;
 export const MAX_TARGET_ATTEMPTS = 4;
+/** Share of the source file's own bitrate an output may use; staying below keeps tiny clips from growing. */
+export const SOURCE_CEILING_FILL = 0.95;
 export const STEP_DOWN_SHORT_SIDES = [1080, 720, 540, 480, 360];
 
 export interface EncodePlan {
@@ -41,7 +43,7 @@ export function maxVideoBps(size: Size): number {
  * itself used (re-encoding can't add quality, only bytes). Keeps at least half the source rate for video.
  */
 export function videoCeilingBps(size: Size, sourceBps: number | null, audioBps: number): number {
-  const sourceCap = sourceBps ? Math.max(sourceBps - audioBps, sourceBps / 2) : Infinity;
+  const sourceCap = sourceBps ? Math.max(sourceBps * SOURCE_CEILING_FILL - audioBps, sourceBps / 2) : Infinity;
   return Math.round(Math.min(maxVideoBps(size), sourceCap));
 }
 

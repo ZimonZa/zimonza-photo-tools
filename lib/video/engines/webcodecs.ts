@@ -178,7 +178,7 @@ export const webcodecsEngine: VideoEngine = {
     const canEncodeIn = (bitrateMode: BitrateMode) =>
       canEncodeVideo("avc", { ...size, quality: new Quality({ bitrate: plan.videoBps, bitrateMode }) });
     if (!(await canEncodeIn("constant")) && !(await canEncodeIn("variable"))) {
-      return { ok: false, reason: `This browser can't encode H.264 at ${plan.width}×${plan.height}.` };
+      return { ok: false, reason: `This browser can't encode H.264 at ${plan.width}×${plan.height}.`, smallerMayWork: true };
     }
     return { ok: true };
   },

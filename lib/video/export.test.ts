@@ -39,8 +39,8 @@ function fakeEngine(
   };
 }
 
-function deps(webcodecs: FakeEngine, ffmpeg: FakeEngine, info: VideoInfo = INFO): ExportDeps {
-  return { probe: async () => info, engines: { webcodecs, ffmpeg } };
+function deps(webcodecs: FakeEngine, ffmpeg: FakeEngine, info: VideoInfo = INFO, isMobile = () => false): ExportDeps {
+  return { probe: async () => info, engines: { webcodecs, ffmpeg }, isMobile };
 }
 
 /** A file that reports `size` without allocating it — e.g. a 150 MB, 60 s 1080p camera original. */
@@ -72,7 +72,7 @@ describe("engine routing", () => {
     const result = await exportVideo(recipe(), { onStatus: (s) => statuses.push(s) }, deps(wc, ff));
     expect(result.engine).toBe("ffmpeg");
     expect(wc.jobs).toHaveLength(0);
-    expect(statuses).toContainEqual({ phase: "fallback", reason: "no encoder" });
+    expect(statuses).toContainEqual({ phase: "fallback", reason: "no encoder", estimatedSec: 675 });
   });
 
   test("auto falls back to ffmpeg once when webcodecs throws", async () => {
@@ -95,6 +95,82 @@ describe("engine routing", () => {
     const ff = fakeEngine("ffmpeg");
     expect((await exportVideo(recipe(), { engine: "ffmpeg" }, deps(wc, ff))).engine).toBe("ffmpeg");
     expect(wc.jobs).toHaveLength(0);
+  });
+});
+
+describe("backup engine policies", () => {
+  const BIG: VideoInfo = { ...INFO, width: 3840, height: 2160 };
+  const sizeAware = (): FakeEngine => {
+    const e = fakeEngine("webcodecs");
+    e.precheck = async (_i, plan) =>
+      plan.width * plan.height <= 1920 * 1080 ? { ok: true } : { ok: false, reason: "too big", smallerMayWork: true };
+    return e;
+  };
+
+  test("a size the fast engine can't encode is lowered instead of going to the backup engine", async () => {
+    const wc = sizeAware();
+    const ff = fakeEngine("ffmpeg");
+    const statuses: ExportStatus[] = [];
+    const result = await exportVideo(
+      recipe({ size: { kind: "quality", level: "high" } }),
+      { onStatus: (s) => statuses.push(s) },
+      deps(wc, ff, BIG)
+    );
+    expect(result.engine).toBe("webcodecs");
+    expect(wc.jobs[0].plan).toMatchObject({ width: 1920, height: 1080 });
+    expect(result.steppedDown).toBe(true);
+    expect(ff.jobs).toHaveLength(0);
+    expect(statuses).toContainEqual({ phase: "smaller", width: 1920, height: 1080, reason: "too big" });
+  });
+
+  test("when no smaller size helps, the job falls back with a time estimate", async () => {
+    const wc = fakeEngine("webcodecs", { precheck: { ok: false, reason: "too big", smallerMayWork: true } });
+    const ff = fakeEngine("ffmpeg");
+    const statuses: ExportStatus[] = [];
+    const result = await exportVideo(recipe(), { onStatus: (s) => statuses.push(s) }, deps(wc, ff, INFO, () => false));
+    expect(result.engine).toBe("ffmpeg");
+    expect(statuses).toContainEqual({ phase: "fallback", reason: "too big", estimatedSec: 675 });
+  });
+
+  test("declining the backup engine cancels", async () => {
+    const wc = fakeEngine("webcodecs", { precheck: { ok: false, reason: "no encoder" } });
+    const ff = fakeEngine("ffmpeg");
+    await expect(exportVideo(recipe(), { confirmFallback: async () => false }, deps(wc, ff))).rejects.toBeInstanceOf(
+      ExportCanceledError
+    );
+    expect(ff.jobs).toHaveLength(0);
+  });
+
+  test("confirmFallback receives the estimate", async () => {
+    const wc = fakeEngine("webcodecs", { precheck: { ok: false, reason: "no encoder" } });
+    const asked: { reason: string; estimatedSec: number }[] = [];
+    await exportVideo(
+      recipe(),
+      {
+        confirmFallback: async (f) => {
+          asked.push(f);
+          return true;
+        },
+      },
+      deps(wc, fakeEngine("ffmpeg"))
+    );
+    expect(asked).toEqual([{ reason: "no encoder", estimatedSec: 675 }]);
+  });
+
+  test("a forced engine never asks", async () => {
+    let asked = false;
+    await exportVideo(
+      recipe(),
+      {
+        engine: "ffmpeg",
+        confirmFallback: async () => {
+          asked = true;
+          return true;
+        },
+      },
+      deps(fakeEngine("webcodecs"), fakeEngine("ffmpeg"))
+    );
+    expect(asked).toBe(false);
   });
 });
 
@@ -156,7 +232,7 @@ describe("target size loop", () => {
       {},
       deps(wc, fakeEngine("ffmpeg"), { ...INFO, width: 1280, height: 720, durationSec: 40 })
     );
-    expect(wc.jobs[0].plan.videoBps).toBe(872_000);
+    expect(wc.jobs[0].plan.videoBps).toBe(822_000);
     expect(result.attempts).toBe(1);
   });
 
@@ -218,7 +294,7 @@ describe("diagnostics", () => {
       { onStatus: (s) => statuses.push(s) },
       { probe, engines: { webcodecs: fakeEngine("webcodecs"), ffmpeg: fakeEngine("ffmpeg") } }
     );
-    expect(statuses).toContainEqual({ phase: "fallback", reason: "Fast engine can't read this file: Unsupported container" });
+    expect(statuses).toContainEqual({ phase: "probe-fallback", reason: "Fast engine can't read this file: Unsupported container" });
   });
 });
 

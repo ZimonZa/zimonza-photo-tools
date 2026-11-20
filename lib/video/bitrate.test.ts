@@ -71,7 +71,7 @@ describe("planTarget", () => {
 
 describe("source bitrate ceiling", () => {
   test("a big target on an already-compressed clip keeps the clip's own bitrate", () => {
-    // 5 MB, 40 s WhatsApp clip → 1 Mbps source; 1 Mbps - 128k audio = 872k video.
+    // 5 MB, 40 s WhatsApp clip → 1 Mbps source; 1 Mbps x 0.95 - 128k audio = 822k video.
     expect(
       planTarget({
         source: { width: 1280, height: 720 },
@@ -82,13 +82,13 @@ describe("source bitrate ceiling", () => {
         maxLongSide: null,
         sourceBps: 1_000_000,
       })
-    ).toEqual({ width: 1280, height: 720, videoBps: 872_000, audioBps: 128_000, steppedDown: false });
+    ).toEqual({ width: 1280, height: 720, videoBps: 822_000, audioBps: 128_000, steppedDown: false });
   });
 
   test("quality mode never exceeds the source bitrate either", () => {
     expect(
       planQuality({ source: HD, level: "high", hasAudio: true, muted: false, maxLongSide: null, sourceBps: 2_000_000 }).videoBps
-    ).toBe(1_872_000);
+    ).toBe(1_772_000);
   });
 
   test("the ceiling keeps at least half the source bitrate for video", () => {
