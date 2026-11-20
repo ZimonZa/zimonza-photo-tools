@@ -178,12 +178,12 @@ export async function exportVideo(
     run = await runOn(d.engines[choice], initialPlan);
   } else {
     let plan = initialPlan;
-    let check = await d.engines.webcodecs.precheck(info, plan);
+    let check = await d.engines.webcodecs.precheck(info, plan, recipe.container);
     if (!check.ok && check.smallerMayWork) {
       const baseShort = Math.min(base.width, base.height);
       for (const s of STEP_DOWN_SHORT_SIDES.filter((x) => x < baseShort)) {
         const smaller = { ...planFor(scaleToShortSide(base, s)), steppedDown: true };
-        const c = await d.engines.webcodecs.precheck(info, smaller);
+        const c = await d.engines.webcodecs.precheck(info, smaller, recipe.container);
         if (c.ok) {
           status({ phase: "smaller", width: smaller.width, height: smaller.height, reason: check.reason });
           plan = smaller;

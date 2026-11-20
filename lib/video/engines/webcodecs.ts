@@ -10,11 +10,27 @@ import {
   Mp4OutputFormat,
   Output,
   Quality,
+  WebMOutputFormat,
+  type ConversionVideoOptions,
 } from "mediabunny";
+import type { EncodePlan } from "@/lib/video/bitrate";
+import { createBlurFitter } from "@/lib/video/engines/blur-fit";
 import type { EncodeJob, VideoEngine, VideoInfo } from "@/lib/video/engines/types";
 import { EngineUnsupportedError, ExportCanceledError } from "@/lib/video/errors";
+import { mediabunnyTransform, type FrameEdits } from "@/lib/video/frame";
+import type { Container } from "@/lib/video/recipe";
 
 export type BitrateMode = "constant" | "variable";
+
+/** What each output container holds. */
+const FORMATS = {
+  mp4: { video: "avc", audio: "aac", videoName: "H.264", mimeType: "video/mp4" },
+  webm: { video: "vp9", audio: "opus", videoName: "VP9", mimeType: "video/webm" },
+} as const;
+
+function outputFormat(container: Container): Mp4OutputFormat | WebMOutputFormat {
+  return container === "webm" ? new WebMOutputFormat() : new Mp4OutputFormat({ fastStart: "in-memory" });
+}
 
 /** Read a clip's basics. Throws when Mediabunny can't read the container or finds no video. */
 export async function probeWithMediabunny(file: File): Promise<VideoInfo> {
@@ -76,24 +92,49 @@ export async function initWithBitrateFallback<C extends { discardedTracks: reado
   return { conversion: await init("variable"), mode: "variable" };
 }
 
+/**
+ * Mediabunny turns, flips horizontally, crops, then resizes: our edit order, once `mediabunnyTransform`
+ * has folded a vertical flip into a half turn plus a horizontal flip. The crop is in the turned and
+ * flipped picture. The blurred background is drawn by hand after all of that.
+ */
+function pictureOptions(edits: FrameEdits, plan: EncodePlan): ConversionVideoOptions {
+  const { rotate, flip } = mediabunnyTransform(edits.rotate, edits.flipH, edits.flipV);
+  const transform = { rotate, flip, crop: edits.crop ?? undefined };
+  if (edits.fit !== "blur") {
+    return { ...transform, width: plan.width, height: plan.height, fit: edits.fit === "cover" ? "cover" : "fill" };
+  }
+  const fit = createBlurFitter(plan);
+  return {
+    ...transform,
+    // `process` gets each frame after rotate/flip/crop (and no resize, since width/height are unset).
+    // Draw its raw pixels: `sample.draw()` would apply the file's own rotation a second time when
+    // Mediabunny skips re-rendering. Mediabunny closes the sample and the frame made from our canvas.
+    process: (sample) => fit(sample.toCanvasImageSource(), sample.squarePixelWidth, sample.squarePixelHeight),
+    processedWidth: plan.width,
+    processedHeight: plan.height,
+  };
+}
+
 interface Attempt {
   conversion: Conversion;
   input: Input;
-  output: Output<Mp4OutputFormat, BufferTarget>;
+  output: Output<Mp4OutputFormat | WebMOutputFormat, BufferTarget>;
   discardedTracks: Conversion["discardedTracks"];
 }
 
 async function encode(job: EncodeJob): Promise<Blob> {
-  const { file, info, trim, plan, signal, onProgress } = job;
+  const { file, info, trim, plan, edits, container, signal, onProgress } = job;
+  const format = FORMATS[container];
   if (signal.aborted) throw new ExportCanceledError();
   const wantAudio = plan.audioBps > 0 && info.hasAudio;
-  if (wantAudio) await ensureAacEncoder();
+  if (wantAudio && format.audio === "aac") await ensureAacEncoder();
   if (signal.aborted) throw new ExportCanceledError();
+  const picture = pictureOptions(edits, plan);
 
   // Each set-up attempt needs its own fresh input and output.
   const setUp = async (mode: BitrateMode): Promise<Attempt> => {
     const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
-    const output = new Output({ format: new Mp4OutputFormat({ fastStart: "in-memory" }), target: new BufferTarget() });
+    const output = new Output({ format: outputFormat(container), target: new BufferTarget() });
     const conversion = await Conversion.init({
       input,
       output,
@@ -101,10 +142,8 @@ async function encode(job: EncodeJob): Promise<Blob> {
       // Mediabunny trims in absolute file time; our trims are relative to the clip's start.
       ...(trim ? { trim: { start: info.startSec + trim.start, end: info.startSec + trim.end } } : {}),
       video: {
-        width: plan.width,
-        height: plan.height,
-        fit: "fill",
-        codec: "avc",
+        ...picture,
+        codec: format.video,
         // Constant mode tracks the requested bitrate far more closely (measured 1.00x vs 1.35x at 3 Mbps).
         quality: new Quality({ bitrate: plan.videoBps, bitrateMode: mode }),
         forceTranscode: true,
@@ -112,7 +151,7 @@ async function encode(job: EncodeJob): Promise<Blob> {
       },
       audio: wantAudio
         ? {
-            codec: "aac",
+            codec: format.audio,
             quality: new Quality({ bitrate: plan.audioBps }),
             numberOfChannels: 2,
             sampleRate: 48_000,
@@ -159,7 +198,7 @@ async function encode(job: EncodeJob): Promise<Blob> {
 
     const bytes = output.target.buffer;
     if (!bytes) throw new Error("The fast engine produced no data.");
-    return new Blob([bytes], { type: "video/mp4" });
+    return new Blob([bytes], { type: format.mimeType });
   } finally {
     attempt.input.dispose();
   }
@@ -167,18 +206,19 @@ async function encode(job: EncodeJob): Promise<Blob> {
 
 export const webcodecsEngine: VideoEngine = {
   id: "webcodecs",
-  async precheck(info, plan) {
+  async precheck(info, plan, container) {
     if (typeof VideoEncoder === "undefined") {
       return { ok: false, reason: "This browser has no built-in video encoder." };
     }
     if (!info.readableByMediabunny) {
       return { ok: false, reason: "The fast engine can't read this file type." };
     }
+    const { video, videoName } = FORMATS[container];
     const size = { width: plan.width, height: plan.height };
     const canEncodeIn = (bitrateMode: BitrateMode) =>
-      canEncodeVideo("avc", { ...size, quality: new Quality({ bitrate: plan.videoBps, bitrateMode }) });
+      canEncodeVideo(video, { ...size, quality: new Quality({ bitrate: plan.videoBps, bitrateMode }) });
     if (!(await canEncodeIn("constant")) && !(await canEncodeIn("variable"))) {
-      return { ok: false, reason: `This browser can't encode H.264 at ${plan.width}×${plan.height}.`, smallerMayWork: true };
+      return { ok: false, reason: `This browser can't encode ${videoName} at ${plan.width}×${plan.height}.`, smallerMayWork: true };
     }
     return { ok: true };
   },

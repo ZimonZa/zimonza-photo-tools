@@ -17,7 +17,11 @@ export type OutputFrame =
   | { kind: "percent"; percent: number }
   | { kind: "exact"; width: number; height: number; fit: FitMode };
 
-/** The picture edits an engine applies, in this order: crop, rotate, flip, then fit into the frame. */
+/**
+ * The picture edits an engine applies, in this order: rotate (clockwise, on top of the file's own
+ * rotation), flip horizontally, flip vertically, crop, then fit into the frame. The crop is in the
+ * picture after rotating and flipping.
+ */
 export interface FrameEdits {
   rotate: Rotation;
   flipH: boolean;

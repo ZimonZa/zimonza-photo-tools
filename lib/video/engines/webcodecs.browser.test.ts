@@ -3,17 +3,25 @@ import { probeWithMediabunny, webcodecsEngine } from "@/lib/video/engines/webcod
 import type { EncodeJob } from "@/lib/video/engines/types";
 import { ExportCanceledError } from "@/lib/video/errors";
 import { makeTestClip } from "@/lib/video/test-utils/make-clip";
-import { inspectMp4 } from "@/lib/video/test-utils/mp4";
+import { inspectMp4, pixelAt } from "@/lib/video/test-utils/mp4";
+
+const NO_EDITS: EncodeJob["edits"] = { rotate: 0, flipH: false, flipV: false, crop: null, fit: null };
 
 function job(partial: Omit<EncodeJob, "signal" | "onProgress" | "edits" | "container"> & Partial<EncodeJob>): EncodeJob {
   return {
     signal: new AbortController().signal,
     onProgress: () => {},
-    edits: { rotate: 0, flipH: false, flipV: false, crop: null, fit: null },
+    edits: NO_EDITS,
     container: "mp4",
     ...partial,
   };
 }
+
+type Rgb = [number, number, number];
+// Colours come back approximate after lossy encoding.
+const isRed = ([r, g, b]: Rgb) => r > 160 && g < 90 && b < 90;
+const isBlue = ([r, g, b]: Rgb) => b > 160 && r < 90 && g < 90;
+const isWhite = (p: Rgb) => p.every((c) => c > 170);
 
 describe("probeWithMediabunny", () => {
   test("reads display size, codecs, audio and duration", async () => {
@@ -115,6 +123,97 @@ describe("webcodecsEngine.encode", () => {
   });
 });
 
+describe("webcodecsEngine applies the edits", () => {
+  const quadrants = () => makeTestClip({ seconds: 1, width: 640, height: 360, audio: false, pattern: "quadrants" });
+  const plan = (width: number, height: number) => ({ width, height, videoBps: 1_000_000, audioBps: 0, steppedDown: false });
+
+  test("rotate + crop selects the region of the rotated picture", async () => {
+    const file = await quadrants();
+    const info = await probeWithMediabunny(file);
+    const out = await webcodecsEngine.encode(
+      job({
+        file,
+        info,
+        trim: null,
+        plan: plan(180, 320),
+        edits: { ...NO_EDITS, rotate: 90, crop: { left: 0, top: 0, width: 180, height: 320 } },
+      })
+    );
+    expect(await inspectMp4(out)).toMatchObject({ width: 180, height: 320, rotation: 0 });
+    // Turned clockwise, the original bottom-left (blue) becomes the top-left.
+    const px = await pixelAt(out, 90, 160);
+    expect(isBlue(px), `pixel ${px}`).toBe(true);
+  });
+
+  test("vertical flip", async () => {
+    const file = await quadrants();
+    const info = await probeWithMediabunny(file);
+    const out = await webcodecsEngine.encode(
+      job({ file, info, trim: null, plan: plan(640, 360), edits: { ...NO_EDITS, flipV: true } })
+    );
+    const px = await pixelAt(out, 80, 45);
+    expect(isBlue(px), `pixel ${px}`).toBe(true);
+  });
+
+  test("crop-to-fill keeps the centre", async () => {
+    const file = await quadrants();
+    const info = await probeWithMediabunny(file);
+    const out = await webcodecsEngine.encode(
+      job({ file, info, trim: null, plan: plan(360, 360), edits: { ...NO_EDITS, fit: "cover" } })
+    );
+    expect(await inspectMp4(out)).toMatchObject({ width: 360, height: 360 });
+    const tl = await pixelAt(out, 90, 90);
+    const br = await pixelAt(out, 270, 270);
+    expect(isRed(tl), `pixel ${tl}`).toBe(true);
+    expect(isWhite(br), `pixel ${br}`).toBe(true);
+
+    // The quadrants are point-symmetric, so stretching would pass the checks above. An off-centre
+    // crop tells the two apart: 480x360 into 120x360 keeps only the red middle; stretching shows green.
+    const narrow = await webcodecsEngine.encode(
+      job({
+        file,
+        info,
+        trim: null,
+        plan: plan(120, 360),
+        edits: { ...NO_EDITS, crop: { left: 0, top: 0, width: 480, height: 360 }, fit: "cover" },
+      })
+    );
+    const px = await pixelAt(narrow, 100, 90);
+    expect(isRed(px), `pixel ${px}`).toBe(true);
+  });
+
+  test("blurred background: whole picture visible, no black bars", async () => {
+    const file = await makeTestClip({ seconds: 1, width: 640, height: 360, audio: false, pattern: "solid-red" });
+    const info = await probeWithMediabunny(file);
+    const out = await webcodecsEngine.encode(
+      job({ file, info, trim: null, plan: plan(360, 640), edits: { ...NO_EDITS, fit: "blur" } })
+    );
+    expect(await inspectMp4(out)).toMatchObject({ width: 360, height: 640, rotation: 0 });
+    const centre = await pixelAt(out, 180, 320);
+    expect(isRed(centre), `pixel ${centre}`).toBe(true);
+    const corner = await pixelAt(out, 10, 10);
+    expect(corner[0], `pixel ${corner}`).toBeGreaterThan(100); // blurred red, not black
+    // The background is darkened, so it isn't simply the picture stretched to fill.
+    expect(corner[0], `pixel ${corner} vs centre ${centre}`).toBeLessThan(centre[0] - 20);
+  });
+
+  test("WebM output is VP9 + Opus", async () => {
+    const file = await makeTestClip({ seconds: 1, width: 640, height: 360, audio: true });
+    const info = await probeWithMediabunny(file);
+    const out = await webcodecsEngine.encode(
+      job({
+        file,
+        info,
+        trim: null,
+        plan: { width: 320, height: 180, videoBps: 400_000, audioBps: 96_000, steppedDown: false },
+        container: "webm",
+      })
+    );
+    expect(out.type).toBe("video/webm");
+    expect(await inspectMp4(out)).toMatchObject({ videoCodec: "vp9", audioCodec: "opus", width: 320, height: 180 });
+  });
+});
+
 describe("clips whose timeline doesn't start at 0", () => {
   test("report their real length and trim relative to their own start", async () => {
     const file = await makeTestClip({ seconds: 3, width: 320, height: 180, audio: false, startAt: 1 });
@@ -154,7 +253,8 @@ describe("webcodecsEngine.precheck", () => {
     const file = await makeTestClip({ seconds: 1, width: 640, height: 360, audio: false });
     const info = await probeWithMediabunny(file);
     const plan = { width: 320, height: 180, videoBps: 300_000, audioBps: 0, steppedDown: false };
-    expect(await webcodecsEngine.precheck(info, plan)).toEqual({ ok: true });
-    expect((await webcodecsEngine.precheck({ ...info, readableByMediabunny: false }, plan)).ok).toBe(false);
+    expect(await webcodecsEngine.precheck(info, plan, "mp4")).toEqual({ ok: true });
+    expect(await webcodecsEngine.precheck(info, plan, "webm")).toEqual({ ok: true });
+    expect((await webcodecsEngine.precheck({ ...info, readableByMediabunny: false }, plan, "mp4")).ok).toBe(false);
   });
 });

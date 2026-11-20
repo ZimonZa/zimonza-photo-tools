@@ -40,8 +40,11 @@ export interface EncodeJob {
 
 export interface VideoEngine {
   id: EngineId;
-  /** Cheap capability check before committing to this engine. */
-  precheck(info: VideoInfo, plan: EncodePlan): Promise<SupportCheck>;
-  /** Produces an MP4 (H.264 + AAC, faststart, upright, even size) honouring the plan. */
+  /** Cheap capability check before committing to this engine, for output in `container`. */
+  precheck(info: VideoInfo, plan: EncodePlan, container: Container): Promise<SupportCheck>;
+  /**
+   * Produces an MP4 (H.264 + AAC, faststart) or a WebM (VP9 + Opus), upright and even-sized,
+   * with the job's edits applied and honouring the plan.
+   */
   encode(job: EncodeJob): Promise<Blob>;
 }

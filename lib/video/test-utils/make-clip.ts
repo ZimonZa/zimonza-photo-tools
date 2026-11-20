@@ -12,10 +12,41 @@ export interface TestClipOptions {
   noise?: boolean;
   /** First video timestamp in seconds (camera / broadcast files often don't start at 0). Video-only clips. */
   startAt?: number;
+  /**
+   * What each frame shows (ignored with `noise`). `moving`: a shifting colour with a white bar.
+   * `quadrants`: red top-left, green top-right, blue bottom-left, white bottom-right, in coded pixels.
+   */
+  pattern?: "moving" | "quadrants" | "solid-red";
 }
 
 const FPS = 30;
 const SAMPLE_RATE = 48_000;
+
+function drawPattern(ctx: OffscreenCanvasRenderingContext2D, o: TestClipOptions, frame: number): void {
+  const { width: w, height: h } = o;
+  switch (o.pattern ?? "moving") {
+    case "quadrants": {
+      const fill = (color: string, x: number, y: number) => {
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, w / 2, h / 2);
+      };
+      fill("#f00", 0, 0);
+      fill("#0f0", w / 2, 0);
+      fill("#00f", 0, h / 2);
+      fill("#fff", w / 2, h / 2);
+      return;
+    }
+    case "solid-red":
+      ctx.fillStyle = "#f00";
+      ctx.fillRect(0, 0, w, h);
+      return;
+    case "moving":
+      ctx.fillStyle = `hsl(${(frame * 12) % 360} 70% 50%)`;
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = "#fff";
+      ctx.fillRect((frame * 8) % w, h / 4, w / 8, h / 2);
+  }
+}
 
 /** Synthesize an H.264 (+ AAC) MP4 in the browser. Test-only. */
 export async function makeTestClip(o: TestClipOptions): Promise<File> {
@@ -48,10 +79,7 @@ export async function makeTestClip(o: TestClipOptions): Promise<File> {
         }
         ctx.putImageData(noise, 0, 0);
       } else {
-        ctx.fillStyle = `hsl(${(i * 12) % 360} 70% 50%)`;
-        ctx.fillRect(0, 0, o.width, o.height);
-        ctx.fillStyle = "#fff";
-        ctx.fillRect((i * 8) % o.width, o.height / 4, o.width / 8, o.height / 2);
+        drawPattern(ctx, o, i);
       }
       await video.add((o.startAt ?? 0) + i / FPS, 1 / FPS);
     }

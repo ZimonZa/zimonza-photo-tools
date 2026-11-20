@@ -1,4 +1,4 @@
-import { ALL_FORMATS, BlobSource, Input } from "mediabunny";
+import { ALL_FORMATS, BlobSource, CanvasSink, Input } from "mediabunny";
 
 /** Top-level MP4 box types in file order, e.g. ["ftyp", "moov", "mdat"]. */
 export function topLevelBoxes(buf: ArrayBuffer): string[] {
@@ -44,6 +44,25 @@ export async function inspectMp4(blob: Blob): Promise<Mp4Inspection> {
       rotation: video?.rotation ?? 0,
       durationSec: await input.computeDuration(),
     };
+  } finally {
+    input.dispose();
+  }
+}
+
+/** The RGB colour of one display pixel of the frame showing at `atSec` (default 0.2 s). Test-only. */
+export async function pixelAt(blob: Blob, x: number, y: number, atSec = 0.2): Promise<[number, number, number]> {
+  const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
+  try {
+    const video = await input.getPrimaryVideoTrack();
+    if (!video) throw new Error("No video track");
+    const frame = await new CanvasSink(video).getCanvas(atSec);
+    if (!frame) throw new Error(`No frame at ${atSec}s`);
+    const { canvas } = frame;
+    // Two branches so TypeScript can pick each canvas type's getContext overload.
+    const ctx = canvas instanceof OffscreenCanvas ? canvas.getContext("2d") : canvas.getContext("2d");
+    if (!ctx) throw new Error("No 2D context");
+    const { data } = ctx.getImageData(x, y, 1, 1);
+    return [data[0], data[1], data[2]];
   } finally {
     input.dispose();
   }
