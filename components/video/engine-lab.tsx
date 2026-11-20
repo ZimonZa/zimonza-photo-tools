@@ -8,6 +8,7 @@ import type { VideoInfo } from "@/lib/video/engines/types";
 import type { ExportResult, ExportStatus } from "@/lib/video/export";
 import type { FitMode, OutputFrame } from "@/lib/video/frame";
 import type { Rotation } from "@/lib/video/geometry";
+import { describeInfo, describeStatus } from "@/lib/video/messages";
 import { applyPreset, VIDEO_PRESETS, type PresetId } from "@/lib/video/presets";
 import { BASE_RECIPE, MB, type Container, type EditRecipe, type QualityLevel } from "@/lib/video/recipe";
 
@@ -21,29 +22,6 @@ const INVALID_SIZE_NOTE = "Output size is too small or not a number. Use at leas
 
 function mb(bytes: number): string {
   return `${(bytes / MB).toFixed(2)} MB`;
-}
-
-function describeStatus(s: ExportStatus): string {
-  switch (s.phase) {
-    case "probing":
-      return "Reading the video…";
-    case "probed":
-      return `Found ${describeInfo(s.info)}`;
-    case "loading-engine":
-      return `Downloading backup engine… ${mb(s.loadedBytes)} of ${s.totalBytes ? mb(s.totalBytes) : "~32 MB"}`;
-    case "encoding":
-      return `Encoding with the ${s.engine === "webcodecs" ? "fast" : "backup"} engine — pass ${s.attempt}`;
-    case "smaller":
-      return `Lowered to ${s.width}×${s.height}: ${s.reason}`;
-    case "probe-fallback":
-      return `Reading with the backup engine: ${s.reason}`;
-    case "fallback":
-      return `Switching to the backup engine (~${Math.max(1, Math.round(s.estimatedSec / 60))} min): ${s.reason}`;
-  }
-}
-
-function describeInfo(i: VideoInfo): string {
-  return `${i.videoCodec ?? "?"} + ${i.audioCodec ?? "no audio"} · ${i.width}×${i.height} · rotation ${i.rotation} · ${i.durationSec.toFixed(2)} s (starts at ${i.startSec.toFixed(2)} s) · fast engine can read: ${i.readableByMediabunny ? "yes" : "no"}`;
 }
 
 function describeFrame(f: OutputFrame): string {

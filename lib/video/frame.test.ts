@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { InvalidSizeError } from "@/lib/video/errors";
-import { clampCrop, mediabunnyTransform, resolveFrame } from "@/lib/video/frame";
+import { clampCrop, mediabunnyTransform, mirrorCropH, remapCrop, resolveFrame } from "@/lib/video/frame";
 
 describe("clampCrop", () => {
   test("clips to the picture and snaps to even numbers", () => {
@@ -113,5 +113,28 @@ describe("mediabunnyTransform", () => {
     expect(mediabunnyTransform(0, false, true)).toEqual({ rotate: 180, flip: true });
     expect(mediabunnyTransform(90, true, true)).toEqual({ rotate: 270, flip: false });
     expect(mediabunnyTransform(270, false, true)).toEqual({ rotate: 90, flip: true });
+  });
+});
+
+describe("mirrorCropH", () => {
+  test("mirrors across the picture width", () => {
+    expect(mirrorCropH({ left: 0, top: 0, width: 100, height: 50 }, 640)).toEqual({ left: 540, top: 0, width: 100, height: 50 });
+  });
+});
+
+describe("remapCrop", () => {
+  const D = { width: 640, height: 360 };
+  const O0 = { rotate: 0, flipH: false, flipV: false } as const;
+  const C = { left: 0, top: 0, width: 100, height: 50 };
+  test("rotating moves the crop with the picture", () => {
+    expect(remapCrop(C, D, O0, { ...O0, rotate: 90 })).toEqual({ left: 310, top: 0, width: 50, height: 100 });
+    expect(remapCrop({ left: 310, top: 0, width: 50, height: 100 }, D, { ...O0, rotate: 90 }, O0)).toEqual(C);
+  });
+  test("flips move the crop with the picture", () => {
+    expect(remapCrop(C, D, O0, { ...O0, flipH: true })).toEqual({ left: 540, top: 0, width: 100, height: 50 });
+    expect(remapCrop(C, D, O0, { ...O0, flipV: true })).toEqual({ left: 0, top: 310, width: 100, height: 50 });
+  });
+  test("same orientation changes nothing", () => {
+    expect(remapCrop(C, D, O0, O0)).toEqual(C);
   });
 });

@@ -2,18 +2,16 @@ import {
   judgeAttempt,
   MAX_TARGET_ATTEMPTS,
   nextVideoBps,
-  planQuality,
-  planTarget,
   STEP_DOWN_SHORT_SIDES,
   videoCeilingBps,
   type EncodePlan,
 } from "@/lib/video/bitrate";
 import { estimateBackupSeconds, isMobileDevice } from "@/lib/video/estimate";
-import { resolveFrame } from "@/lib/video/frame";
 import type { EngineId, EncodeJob, SupportCheck, VideoEngine, VideoInfo } from "@/lib/video/engines/types";
 import { scaleToShortSide, type Size } from "@/lib/video/geometry";
 import { EngineUnsupportedError, ExportCanceledError, TargetNotReachedError } from "@/lib/video/errors";
-import { normalizeTrim, outputFileName, type Container, type EditRecipe, type TrimRange } from "@/lib/video/recipe";
+import { estimateBytes, planOutput, type OutputPlan } from "@/lib/video/plan-output";
+import { outputFileName, type Container, type EditRecipe, type TrimRange } from "@/lib/video/recipe";
 
 export type ExportStatus =
   | { phase: "probing" }
@@ -82,6 +80,11 @@ export function createProbe(
   };
 }
 
+/** Read a video's details with the default probe (the fast reader, then ffmpeg's); engines load on demand. */
+export async function probeVideo(file: File, options?: ProbeOptions): Promise<VideoInfo> {
+  return (await loadDefaultDeps()).probe(file, options);
+}
+
 /** Real engines, loaded only when an export actually runs. */
 async function loadDefaultDeps(): Promise<ExportDeps> {
   const [wc, ff] = await Promise.all([import("@/lib/video/engines/webcodecs"), import("@/lib/video/engines/ffmpeg")]);
@@ -102,9 +105,9 @@ interface Prepared {
   info: VideoInfo;
   trim: TrimRange | null;
   durationSec: number;
-  crop: ReturnType<typeof resolveFrame>["crop"];
+  crop: OutputPlan["crop"];
   base: Size;
-  fit: ReturnType<typeof resolveFrame>["fit"];
+  fit: OutputPlan["fit"];
   sourceBps: number | null;
   planFor: (src: Size) => EncodePlan;
   initialPlan: EncodePlan;
@@ -135,35 +138,7 @@ async function prepare(
   status({ phase: "probed", info });
   checkAbort();
 
-  const trim = normalizeTrim(recipe.trim, info.durationSec);
-  const durationSec = trim ? trim.end - trim.start : info.durationSec;
-  const { crop, base, fit } = resolveFrame(
-    { width: info.width, height: info.height },
-    recipe.rotate,
-    recipe.crop,
-    recipe.frame
-  );
-  // Whole-file average bitrate: re-encoding never needs more than the source already spent.
-  const sourceBps = info.durationSec > 0 ? (recipe.file.size * 8) / info.durationSec : null;
-  const planFor = (src: Size): EncodePlan =>
-    recipe.size.kind === "target"
-      ? planTarget({
-          source: src,
-          durationSec,
-          targetBytes: recipe.size.bytes,
-          hasAudio: info.hasAudio,
-          muted: recipe.muted,
-          maxLongSide: null,
-          sourceBps,
-        })
-      : planQuality({
-          source: src,
-          level: recipe.size.level,
-          hasAudio: info.hasAudio,
-          muted: recipe.muted,
-          maxLongSide: null,
-          sourceBps,
-        });
+  const { plan, trim, durationSec, crop, base, fit, sourceBps, planFor } = planOutput(info, recipe);
   return {
     d,
     info,
@@ -174,7 +149,7 @@ async function prepare(
     fit,
     sourceBps,
     planFor,
-    initialPlan: planFor(base),
+    initialPlan: plan,
     targetBytes: recipe.size.kind === "target" ? recipe.size.bytes : null,
     onEngineDownload,
   };
@@ -303,8 +278,7 @@ async function encodeSample(
     onProgress: () => {},
     onEngineDownload: p.onEngineDownload,
   });
-  let estimatedBytes = Math.round(((plan.videoBps + plan.audioBps) * p.durationSec) / 8);
-  if (p.targetBytes !== null) estimatedBytes = Math.min(estimatedBytes, p.targetBytes);
+  const estimatedBytes = estimateBytes(plan, p.durationSec, p.targetBytes);
   return { blob, window: sampleTrim, estimatedBytes, plan };
 }
 

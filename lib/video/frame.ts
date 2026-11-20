@@ -105,3 +105,53 @@ export function mediabunnyTransform(
   if (!flipV) return { rotate, flip: flipH };
   return { rotate: ((rotate + 180) % 360) as Rotation, flip: !flipH };
 }
+
+/** The picture's orientation edits: clockwise turn first, then horizontal flip, then vertical flip. */
+export interface Orientation {
+  rotate: Rotation;
+  flipH: boolean;
+  flipV: boolean;
+}
+
+/** Mirror a crop left-to-right across a picture `pictureWidth` px wide. */
+export function mirrorCropH(crop: CropRect, pictureWidth: number): CropRect {
+  return { ...crop, left: pictureWidth - crop.left - crop.width };
+}
+
+function mirrorCropV(crop: CropRect, pictureHeight: number): CropRect {
+  return { ...crop, top: pictureHeight - crop.top - crop.height };
+}
+
+/** Turn a crop a quarter turn clockwise with its picture; returns the crop and the picture's new size. */
+function quarterTurn(crop: CropRect, size: Size): { crop: CropRect; size: Size } {
+  return {
+    crop: { left: size.height - crop.top - crop.height, top: crop.left, width: crop.height, height: crop.width },
+    size: { width: size.height, height: size.width },
+  };
+}
+
+function turnCw(crop: CropRect, size: Size, degrees: number): { crop: CropRect; size: Size } {
+  let state = { crop, size };
+  for (let i = 0; i < (degrees / 90) % 4; i++) state = quarterTurn(state.crop, state.size);
+  return state;
+}
+
+/**
+ * Keep a crop on the same part of the picture when the orientation changes. `crop` lives in the
+ * picture oriented by `from`; `display` is the picture before any of the user's edits.
+ */
+export function remapCrop(crop: CropRect, display: Size, from: Orientation, to: Orientation): CropRect {
+  if (from.rotate === to.rotate && from.flipH === to.flipH && from.flipV === to.flipV) return crop;
+  const fromSize = displaySize(display, from.rotate);
+  // Undo `from`: flips undo themselves (in reverse order), then turn back to the display picture.
+  let c = crop;
+  if (from.flipV) c = mirrorCropV(c, fromSize.height);
+  if (from.flipH) c = mirrorCropH(c, fromSize.width);
+  const shown = turnCw(c, fromSize, (360 - from.rotate) % 360);
+  // Apply `to`.
+  const turned = turnCw(shown.crop, shown.size, to.rotate);
+  c = turned.crop;
+  if (to.flipH) c = mirrorCropH(c, turned.size.width);
+  if (to.flipV) c = mirrorCropV(c, turned.size.height);
+  return clampCrop(c, turned.size) ?? c;
+}
