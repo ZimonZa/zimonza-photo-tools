@@ -28,7 +28,7 @@ export const VIDEO_PRESETS: VideoPreset[] = [
     size: { kind: "quality", level: "balanced" },
     container: "mp4",
   },
-  { id: "form", label: "Form upload (under … MB)", size: "ask-target" },
+  { id: "form", label: "Form upload (under … MB)", size: "ask-target", container: "mp4" },
   { id: "custom", label: "Custom" },
 ];
 

@@ -32,6 +32,9 @@ describe("applyPreset", () => {
     expect(applyPreset(r, byId("form"), 25).size).toEqual({ kind: "target", bytes: 25 * MB });
     expect(applyPreset(r, byId("form")).size).toEqual({ kind: "target", bytes: 10 * MB });
   });
+  test("Form upload is always MP4, even after WebM was picked", () => {
+    expect(applyPreset({ ...r, container: "webm" }, byId("form")).container).toBe("mp4");
+  });
   test("Custom changes nothing", () => {
     expect(applyPreset(r, byId("custom"))).toEqual(r);
   });
