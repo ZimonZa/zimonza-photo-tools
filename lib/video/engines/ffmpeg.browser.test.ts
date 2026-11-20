@@ -171,6 +171,31 @@ describe("ffmpegEngine applies the edits", () => {
   );
 
   test(
+    "a clip with its own rotation is cropped in the upright picture",
+    async () => {
+      // A phone portrait clip stored landscape: upright it is 360x640, blue | red over white | green.
+      // Crop the top-right quadrant (red) with no fit.
+      const file = await makeTestClip({ seconds: 1, width: 640, height: 360, audio: false, rotation: 90, pattern: "quadrants" });
+      const out = await ffmpegEngine.encode(
+        job({
+          file,
+          info: await probeWithFfmpeg(file),
+          trim: null,
+          plan: plan(180, 320),
+          edits: { ...NO_EDITS, crop: { left: 180, top: 0, width: 180, height: 320 } },
+        })
+      );
+      expect(await inspectMp4(out)).toMatchObject({ width: 180, height: 320, rotation: 0 });
+      await expectPixels(out, [
+        [90, 160, isRed],
+        [20, 20, isRed],
+        [160, 300, isRed],
+      ]);
+    },
+    TIMEOUT
+  );
+
+  test(
     "blurred background: whole picture visible, no black bars",
     async () => {
       const file = await makeTestClip({ seconds: 1, width: 640, height: 360, audio: false, pattern: "solid-red" });
