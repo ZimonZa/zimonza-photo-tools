@@ -22,6 +22,14 @@ type Rgb = [number, number, number];
 const isRed = ([r, g, b]: Rgb) => r > 160 && g < 90 && b < 90;
 const isBlue = ([r, g, b]: Rgb) => b > 160 && r < 90 && g < 90;
 const isWhite = (p: Rgb) => p.every((c) => c > 170);
+const isGreen = ([r, g, b]: Rgb) => g > 160 && r < 90 && b < 90;
+
+async function expectPixels(out: Blob, checks: [x: number, y: number, is: (p: Rgb) => boolean][]) {
+  for (const [x, y, is] of checks) {
+    const px = await pixelAt(out, x, y);
+    expect(is(px), `${is.name} at (${x},${y}): ${px}`).toBe(true);
+  }
+}
 
 describe("probeWithMediabunny", () => {
   test("reads display size, codecs, audio and duration", async () => {
@@ -195,6 +203,76 @@ describe("webcodecsEngine applies the edits", () => {
     expect(corner[0], `pixel ${corner}`).toBeGreaterThan(100); // blurred red, not black
     // The background is darkened, so it isn't simply the picture stretched to fill.
     expect(corner[0], `pixel ${corner} vs centre ${centre}`).toBeLessThan(centre[0] - 20);
+  });
+
+  describe("blurred background combined with other edits", () => {
+    const blur = async (file: File, edits: Partial<EncodeJob["edits"]>, width: number, height: number) =>
+      webcodecsEngine.encode(
+        job({
+          file,
+          info: await probeWithMediabunny(file),
+          trim: null,
+          plan: plan(width, height),
+          edits: { ...NO_EDITS, ...edits, fit: "blur" },
+        })
+      );
+
+    test("after rotate + crop, the cropped turned picture sits whole in the frame", async () => {
+      // Turned clockwise the quadrants read blue | red over white | green. The crop keeps the top
+      // half (blue | red, 360x320), contained in rows 160-480 of the 360x640 frame.
+      const out = await blur(await quadrants(), { rotate: 90, crop: { left: 0, top: 0, width: 360, height: 320 } }, 360, 640);
+      expect(await inspectMp4(out)).toMatchObject({ width: 360, height: 640, rotation: 0 });
+      await expectPixels(out, [
+        [90, 240, isBlue],
+        [270, 240, isRed],
+        [90, 420, isBlue],
+        [270, 420, isRed],
+      ]);
+      // Above the picture is the darkened background, not more of the picture.
+      const picture = await pixelAt(out, 90, 240);
+      const above = await pixelAt(out, 90, 20);
+      expect(above[2], `background ${above} vs picture ${picture}`).toBeLessThan(picture[2] - 20);
+    });
+
+    test("a clip with its own rotation stays upright", async () => {
+      // Shown upright the 640x360 file is 360x640: blue | red over white | green, contained in
+      // columns 79-281 of the 360x360 frame.
+      const file = await makeTestClip({ seconds: 1, width: 640, height: 360, audio: false, rotation: 90, pattern: "quadrants" });
+      const out = await blur(file, {}, 360, 360);
+      await expectPixels(out, [
+        [130, 90, isBlue],
+        [230, 90, isRed],
+        [130, 270, isWhite],
+        [230, 270, isGreen],
+      ]);
+      const picture = await pixelAt(out, 130, 90);
+      const beside = await pixelAt(out, 20, 90);
+      expect(beside[2], `background ${beside} vs picture ${picture}`).toBeLessThan(picture[2] - 20);
+    });
+
+    test("a turn that cancels the clip's own rotation shows the coded picture", async () => {
+      // 90 in the file + 270 from the user = upright as coded. Mediabunny skips re-rendering here, so the
+      // frame reaches `process` with the file's rotation still as metadata; drawing must not apply it.
+      const file = await makeTestClip({ seconds: 1, width: 640, height: 360, audio: false, rotation: 90, pattern: "quadrants" });
+      const out = await blur(file, { rotate: 270 }, 360, 360);
+      await expectPixels(out, [
+        [90, 135, isRed],
+        [270, 135, isGreen],
+        [90, 225, isBlue],
+        [270, 225, isWhite],
+      ]);
+    });
+
+    test("after a vertical flip", async () => {
+      // Flipped top to bottom: blue | white over red | green, contained in rows 79-281.
+      const out = await blur(await quadrants(), { flipV: true }, 360, 360);
+      await expectPixels(out, [
+        [90, 135, isBlue],
+        [270, 135, isWhite],
+        [90, 225, isRed],
+        [270, 225, isGreen],
+      ]);
+    });
   });
 
   test("WebM output is VP9 + Opus", async () => {
