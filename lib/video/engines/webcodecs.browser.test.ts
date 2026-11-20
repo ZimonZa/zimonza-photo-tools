@@ -322,4 +322,11 @@ describe("webcodecsEngine.precheck", () => {
     expect(await webcodecsEngine.precheck(info, plan, "webm")).toEqual({ ok: true });
     expect((await webcodecsEngine.precheck({ ...info, readableByMediabunny: false }, plan, "mp4")).ok).toBe(false);
   });
+
+  test("accepts WebM with audio where the browser encodes Opus", async () => {
+    const file = await makeTestClip({ seconds: 1, width: 640, height: 360, audio: true });
+    const info = await probeWithMediabunny(file);
+    const plan = { width: 320, height: 180, videoBps: 300_000, audioBps: 96_000, steppedDown: false };
+    expect(await webcodecsEngine.precheck(info, plan, "webm")).toEqual({ ok: true });
+  });
 });

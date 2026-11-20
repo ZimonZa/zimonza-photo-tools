@@ -1,7 +1,13 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { maxVideoBps, nextVideoBps } from "@/lib/video/bitrate";
 import type { EncodeJob, SupportCheck, VideoEngine, VideoInfo } from "@/lib/video/engines/types";
-import { ExportCanceledError, TargetNotReachedError, TargetTooSmallError } from "@/lib/video/errors";
+import {
+  EngineUnsupportedError,
+  ExportCanceledError,
+  InvalidSizeError,
+  TargetNotReachedError,
+  TargetTooSmallError,
+} from "@/lib/video/errors";
 import {
   createProbe,
   exportVideo,
@@ -105,15 +111,16 @@ describe("engine routing", () => {
   });
 });
 
-describe("backup engine policies", () => {
-  const BIG: VideoInfo = { ...INFO, width: 3840, height: 2160 };
-  const sizeAware = (): FakeEngine => {
-    const e = fakeEngine("webcodecs");
-    e.precheck = async (_i, plan) =>
-      plan.width * plan.height <= 1920 * 1080 ? { ok: true } : { ok: false, reason: "too big", smallerMayWork: true };
-    return e;
-  };
+const BIG: VideoInfo = { ...INFO, width: 3840, height: 2160 };
+/** A fast engine that can encode up to 1080p. */
+const sizeAware = (): FakeEngine => {
+  const e = fakeEngine("webcodecs");
+  e.precheck = async (_i, plan) =>
+    plan.width * plan.height <= 1920 * 1080 ? { ok: true } : { ok: false, reason: "too big", smallerMayWork: true };
+  return e;
+};
 
+describe("backup engine policies", () => {
   test("a size the fast engine can't encode is lowered instead of going to the backup engine", async () => {
     const wc = sizeAware();
     const ff = fakeEngine("ffmpeg");
@@ -252,6 +259,18 @@ describe("target size loop", () => {
   });
 });
 
+describe("output size", () => {
+  test("a degenerate size fails before any encoding", async () => {
+    const wc = fakeEngine("webcodecs");
+    const ff = fakeEngine("ffmpeg");
+    await expect(
+      exportVideo(recipe({ frame: { kind: "exact", width: 10, height: 10, fit: "cover" } }), {}, deps(wc, ff))
+    ).rejects.toBeInstanceOf(InvalidSizeError);
+    expect(wc.jobs).toHaveLength(0);
+    expect(ff.jobs).toHaveLength(0);
+  });
+});
+
 describe("trim", () => {
   test("is clamped to the clip and the trimmed length drives the plan", async () => {
     const wc = fakeEngine("webcodecs", { sizes: [19_000_000] });
@@ -342,6 +361,12 @@ describe("sampleWindow", () => {
     expect(sampleWindow({ start: 10, end: 20 }, 60, 2)).toEqual({ start: 10, end: 13 });
     expect(sampleWindow(null, 2, 1)).toEqual({ start: 0, end: 2 });
   });
+
+  test("a playhead that isn't a finite number starts at the usable range's start", () => {
+    expect(sampleWindow(null, 60, NaN)).toEqual({ start: 0, end: 3 });
+    expect(sampleWindow({ start: 10, end: 20 }, 60, NaN)).toEqual({ start: 10, end: 13 });
+    expect(sampleWindow({ start: 10, end: 20 }, 60, Infinity)).toEqual({ start: 10, end: 13 });
+  });
 });
 
 describe("previewSample", () => {
@@ -380,5 +405,126 @@ describe("previewSample", () => {
       ExportCanceledError
     );
     expect(wc.jobs).toHaveLength(0);
+  });
+
+  test("a cancel during the encode still rejects with ExportCanceledError", async () => {
+    const ac = new AbortController();
+    const wc = fakeEngine("webcodecs");
+    wc.encode = async (job) => {
+      wc.jobs.push(job);
+      ac.abort();
+      if (job.signal.aborted) throw new ExportCanceledError();
+      return new Blob([new Uint8Array(1000)]);
+    };
+    await expect(previewSample(recipe(), 30, { signal: ac.signal }, deps(wc, fakeEngine("ffmpeg")))).rejects.toBeInstanceOf(
+      ExportCanceledError
+    );
+  });
+
+  test("a file the fast reader can't open gives no sample and never reaches ffmpeg's probe", async () => {
+    let fullProbes = 0;
+    const probe = createProbe(
+      async () => {
+        throw new Error("Unsupported container");
+      },
+      async () => {
+        fullProbes++;
+        return { ...INFO, readableByMediabunny: false };
+      }
+    );
+    const wc = fakeEngine("webcodecs");
+    const ff = fakeEngine("ffmpeg");
+    expect(await previewSample(recipe(), 30, {}, { probe, engines: { webcodecs: wc, ffmpeg: ff } })).toBeNull();
+    expect(fullProbes).toBe(0);
+    expect(wc.jobs).toHaveLength(0);
+    expect(ff.jobs).toHaveLength(0);
+  });
+
+  test("a size the fast engine can't encode is lowered for the sample, as for the export", async () => {
+    const wc = sizeAware();
+    const r = await previewSample(
+      recipe({ size: { kind: "quality", level: "high" } }),
+      30,
+      {},
+      deps(wc, fakeEngine("ffmpeg"), BIG)
+    );
+    expect(r).not.toBeNull();
+    expect(r!.plan).toMatchObject({ width: 1920, height: 1080, steppedDown: true });
+    expect(wc.jobs).toHaveLength(1);
+    expect(wc.jobs[0].plan).toEqual(r!.plan);
+  });
+
+  test("no sample when the fast engine finds it can't process the file", async () => {
+    const wc = fakeEngine("webcodecs", {
+      error: new EngineUnsupportedError("The fast engine can't process this file (audio: no_encodable_target_codec)."),
+    });
+    const ff = fakeEngine("ffmpeg");
+    expect(await previewSample(recipe(), 30, {}, deps(wc, ff))).toBeNull();
+    expect(ff.jobs).toHaveLength(0);
+  });
+
+  test("other failures still reject", async () => {
+    const wc = fakeEngine("webcodecs", { error: new Error("boom") });
+    await expect(previewSample(recipe(), 30, {}, deps(wc, fakeEngine("ffmpeg")))).rejects.toThrow("boom");
+  });
+});
+
+describe("a sample never competes with an export", () => {
+  const sampleBlob = () => new Blob([new Uint8Array(1000)]);
+
+  test("an export stops a sample in flight and starts encoding only once the sample has settled", async () => {
+    const events: string[] = [];
+    const wc = fakeEngine("webcodecs");
+    wc.encode = async (job) => {
+      wc.jobs.push(job);
+      if (wc.jobs.length > 1) {
+        events.push("export encode");
+        return sampleBlob();
+      }
+      // The sample runs until it's stopped (or 200 ms pass), then takes a moment to wind down.
+      await new Promise<void>((resolve) => {
+        job.signal.addEventListener("abort", () => resolve(), { once: true });
+        setTimeout(resolve, 200);
+      });
+      await new Promise((r) => setTimeout(r, 20));
+      events.push(job.signal.aborted ? "sample stopped" : "sample finished");
+      if (job.signal.aborted) throw new ExportCanceledError();
+      return sampleBlob();
+    };
+    const d = deps(wc, fakeEngine("ffmpeg"));
+    const sample = previewSample(recipe(), 30, {}, d);
+    await vi.waitFor(() => expect(wc.jobs).toHaveLength(1));
+
+    await exportVideo(recipe(), {}, d);
+    expect(wc.jobs[0].signal.aborted).toBe(true);
+    expect(events).toEqual(["sample stopped", "export encode"]);
+    // Stopped by the export rather than by the caller: no sample, not a cancel.
+    expect(await sample).toBeNull();
+  });
+
+  test("no sample while an export is running", async () => {
+    let release!: () => void;
+    const wc = fakeEngine("webcodecs");
+    wc.encode = async (job) => {
+      wc.jobs.push(job);
+      if (wc.jobs.length === 1) await new Promise<void>((r) => (release = r));
+      return sampleBlob();
+    };
+    const d = deps(wc, fakeEngine("ffmpeg"));
+    const exporting = exportVideo(recipe(), {}, d);
+    await vi.waitFor(() => expect(wc.jobs).toHaveLength(1));
+
+    expect(await previewSample(recipe(), 30, {}, d)).toBeNull();
+    expect(wc.jobs).toHaveLength(1);
+
+    release();
+    await exporting;
+    expect(await previewSample(recipe(), 30, {}, deps(fakeEngine("webcodecs"), fakeEngine("ffmpeg")))).not.toBeNull();
+  });
+
+  test("samples run again after an export fails", async () => {
+    const failing = fakeEngine("webcodecs", { error: new Error("boom") });
+    await expect(exportVideo(recipe(), { engine: "webcodecs" }, deps(failing, fakeEngine("ffmpeg")))).rejects.toThrow("boom");
+    expect(await previewSample(recipe(), 30, {}, deps(fakeEngine("webcodecs"), fakeEngine("ffmpeg")))).not.toBeNull();
   });
 });

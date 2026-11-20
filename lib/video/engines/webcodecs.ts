@@ -15,7 +15,7 @@ import {
 } from "mediabunny";
 import type { EncodePlan } from "@/lib/video/bitrate";
 import { createBlurFitter } from "@/lib/video/engines/blur-fit";
-import type { EncodeJob, VideoEngine, VideoInfo } from "@/lib/video/engines/types";
+import type { EncodeJob, SupportCheck, VideoEngine, VideoInfo } from "@/lib/video/engines/types";
 import { EngineUnsupportedError, ExportCanceledError } from "@/lib/video/errors";
 import { mediabunnyTransform, type FrameEdits } from "@/lib/video/frame";
 import type { Container } from "@/lib/video/recipe";
@@ -204,23 +204,54 @@ async function encode(job: EncodeJob): Promise<Blob> {
   }
 }
 
+/** What the device can encode. Injectable so the precheck's rules can be tested outside a browser. */
+export interface DeviceEncoders {
+  hasVideoEncoder(): boolean;
+  canEncodeVideo(codec: "avc" | "vp9", plan: EncodePlan, mode: BitrateMode): Promise<boolean>;
+  canEncodeAudio(codec: "aac" | "opus", plan: EncodePlan): Promise<boolean>;
+}
+
+const deviceEncoders: DeviceEncoders = {
+  hasVideoEncoder: () => typeof VideoEncoder !== "undefined",
+  canEncodeVideo: (codec, plan, bitrateMode) =>
+    canEncodeVideo(codec, {
+      width: plan.width,
+      height: plan.height,
+      quality: new Quality({ bitrate: plan.videoBps, bitrateMode }),
+    }),
+  canEncodeAudio: (codec, plan) =>
+    canEncodeAudio(codec, { numberOfChannels: 2, sampleRate: 48_000, quality: new Quality({ bitrate: plan.audioBps }) }),
+};
+
+/** The fast engine's precheck: can this device read the file and encode `plan` into `container`? */
+export async function checkFastEngine(
+  info: VideoInfo,
+  plan: EncodePlan,
+  container: Container,
+  encoders: DeviceEncoders = deviceEncoders
+): Promise<SupportCheck> {
+  if (!encoders.hasVideoEncoder()) {
+    return { ok: false, reason: "This browser has no built-in video encoder." };
+  }
+  if (!info.readableByMediabunny) {
+    return { ok: false, reason: "The fast engine can't read this file type." };
+  }
+  const { video, videoName, audio } = FORMATS[container];
+  // AAC falls back to a software encoder (see `ensureAacEncoder`); Opus has none. Checked before
+  // the video size because no smaller size would fix it.
+  const wantAudio = plan.audioBps > 0 && info.hasAudio;
+  if (wantAudio && audio === "opus" && !(await encoders.canEncodeAudio("opus", plan))) {
+    return { ok: false, reason: "This browser can't encode Opus audio for WebM." };
+  }
+  const canEncodeIn = (bitrateMode: BitrateMode) => encoders.canEncodeVideo(video, plan, bitrateMode);
+  if (!(await canEncodeIn("constant")) && !(await canEncodeIn("variable"))) {
+    return { ok: false, reason: `This browser can't encode ${videoName} at ${plan.width}×${plan.height}.`, smallerMayWork: true };
+  }
+  return { ok: true };
+}
+
 export const webcodecsEngine: VideoEngine = {
   id: "webcodecs",
-  async precheck(info, plan, container) {
-    if (typeof VideoEncoder === "undefined") {
-      return { ok: false, reason: "This browser has no built-in video encoder." };
-    }
-    if (!info.readableByMediabunny) {
-      return { ok: false, reason: "The fast engine can't read this file type." };
-    }
-    const { video, videoName } = FORMATS[container];
-    const size = { width: plan.width, height: plan.height };
-    const canEncodeIn = (bitrateMode: BitrateMode) =>
-      canEncodeVideo(video, { ...size, quality: new Quality({ bitrate: plan.videoBps, bitrateMode }) });
-    if (!(await canEncodeIn("constant")) && !(await canEncodeIn("variable"))) {
-      return { ok: false, reason: `This browser can't encode ${videoName} at ${plan.width}×${plan.height}.`, smallerMayWork: true };
-    }
-    return { ok: true };
-  },
+  precheck: (info, plan, container) => checkFastEngine(info, plan, container),
   encode,
 };

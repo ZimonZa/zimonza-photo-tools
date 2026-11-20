@@ -10,10 +10,10 @@ import {
 } from "@/lib/video/bitrate";
 import { estimateBackupSeconds, isMobileDevice } from "@/lib/video/estimate";
 import { resolveFrame } from "@/lib/video/frame";
-import type { EngineId, EncodeJob, VideoEngine, VideoInfo } from "@/lib/video/engines/types";
+import type { EngineId, EncodeJob, SupportCheck, VideoEngine, VideoInfo } from "@/lib/video/engines/types";
 import { scaleToShortSide, type Size } from "@/lib/video/geometry";
-import { ExportCanceledError, TargetNotReachedError } from "@/lib/video/errors";
-import { normalizeTrim, outputFileName, type EditRecipe, type TrimRange } from "@/lib/video/recipe";
+import { EngineUnsupportedError, ExportCanceledError, TargetNotReachedError } from "@/lib/video/errors";
+import { normalizeTrim, outputFileName, type Container, type EditRecipe, type TrimRange } from "@/lib/video/recipe";
 
 export type ExportStatus =
   | { phase: "probing" }
@@ -49,23 +49,34 @@ export interface ExportResult {
 
 type DownloadListener = (loaded: number, total: number | null) => void;
 
+export interface ProbeOptions {
+  /** Progress of the backup engine's one-time download, when its reader is needed. */
+  onEngineDownload?: DownloadListener;
+  /** Says why, when the fast reader fails and ffmpeg's is used instead. */
+  onFallback?(reason: string): void;
+  /** Only the fast reader: reject with `EngineUnsupportedError` instead of downloading ffmpeg's. */
+  fastOnly?: boolean;
+}
+
 export interface ExportDeps {
-  probe(file: File, onEngineDownload?: DownloadListener, onFallback?: (reason: string) => void): Promise<VideoInfo>;
+  probe(file: File, options?: ProbeOptions): Promise<VideoInfo>;
   engines: Record<EngineId, VideoEngine>;
   /** Defaults to `isMobileDevice`. */
   isMobile?: () => boolean;
 }
 
-/** Probe with the fast reader; when it can't read the file, say why and use ffmpeg's. */
+/** Probe with the fast reader; when it can't read the file, say why and use ffmpeg's (unless `fastOnly`). */
 export function createProbe(
   fast: (file: File) => Promise<VideoInfo>,
   full: (file: File, onEngineDownload?: DownloadListener) => Promise<VideoInfo>
 ): ExportDeps["probe"] {
-  return async (file, onEngineDownload, onFallback) => {
+  return async (file, { onEngineDownload, onFallback, fastOnly = false } = {}) => {
     try {
       return await fast(file);
     } catch (e) {
-      onFallback?.(`Fast engine can't read this file: ${e instanceof Error ? e.message : String(e)}`);
+      const reason = `Fast engine can't read this file: ${e instanceof Error ? e.message : String(e)}`;
+      if (fastOnly) throw new EngineUnsupportedError(reason);
+      onFallback?.(reason);
       return full(file, onEngineDownload);
     }
   };
@@ -101,18 +112,26 @@ interface Prepared {
   onEngineDownload: DownloadListener;
 }
 
-/** Shared by export and preview: probe, normalize the trim, resolve the frame, plan the bitrate. */
+/**
+ * Shared by export and preview: probe, normalize the trim, resolve the frame, plan the bitrate.
+ * `fastOnly` probes with the fast reader alone (see `ProbeOptions`).
+ */
 async function prepare(
   recipe: EditRecipe,
   deps: ExportDeps | undefined,
   status: (s: ExportStatus) => void,
-  checkAbort: () => void
+  checkAbort: () => void,
+  { fastOnly = false }: { fastOnly?: boolean } = {}
 ): Promise<Prepared> {
   const onEngineDownload = (loadedBytes: number, totalBytes: number | null) =>
     status({ phase: "loading-engine", engine: "ffmpeg", loadedBytes, totalBytes });
   const d = deps ?? (await loadDefaultDeps());
   status({ phase: "probing" });
-  const info = await d.probe(recipe.file, onEngineDownload, (reason) => status({ phase: "probe-fallback", reason }));
+  const info = await d.probe(recipe.file, {
+    onEngineDownload,
+    onFallback: (reason) => status({ phase: "probe-fallback", reason }),
+    fastOnly,
+  });
   status({ phase: "probed", info });
   checkAbort();
 
@@ -161,13 +180,41 @@ async function prepare(
   };
 }
 
+/**
+ * The plan the fast engine can run: the full-size one or, when only the size stopped it, the first
+ * smaller step it can encode. `check` is the verdict on the plan returned. Shared by export and preview.
+ */
+async function fastEnginePlan(
+  p: Prepared,
+  container: Container,
+  status: (s: ExportStatus) => void
+): Promise<{ plan: EncodePlan; check: SupportCheck }> {
+  const engine = p.d.engines.webcodecs;
+  const check = await engine.precheck(p.info, p.initialPlan, container);
+  if (check.ok || !check.smallerMayWork) return { plan: p.initialPlan, check };
+  const baseShort = Math.min(p.base.width, p.base.height);
+  for (const s of STEP_DOWN_SHORT_SIDES.filter((x) => x < baseShort)) {
+    const smaller = { ...p.planFor(scaleToShortSide(p.base, s)), steppedDown: true };
+    const c = await engine.precheck(p.info, smaller, container);
+    if (c.ok) {
+      status({ phase: "smaller", width: smaller.width, height: smaller.height, reason: check.reason });
+      return { plan: smaller, check: c };
+    }
+  }
+  return { plan: p.initialPlan, check };
+}
+
 export const SAMPLE_SECONDS = 3;
 
-/** A SAMPLE_SECONDS window around the playhead, kept inside the trim (or whole clip). Times are clip-relative. */
+/**
+ * A SAMPLE_SECONDS window around the playhead, kept inside the trim (or whole clip). Times are
+ * clip-relative. A playhead that isn't a finite number counts as the start of that range.
+ */
 export function sampleWindow(trim: TrimRange | null, durationSec: number, atSec: number): TrimRange {
   const range = trim ?? { start: 0, end: durationSec };
+  const at = Number.isFinite(atSec) ? atSec : range.start;
   const length = Math.min(SAMPLE_SECONDS, range.end - range.start);
-  const start = Math.min(Math.max(atSec - length / 2, range.start), range.end - length);
+  const start = Math.min(Math.max(at - length / 2, range.start), range.end - length);
   return { start, end: start + length };
 }
 
@@ -179,38 +226,86 @@ export interface SamplePreview {
   plan: EncodePlan;
 }
 
-/** Encode a short sample around `atSec` with the real settings (fast engine only); null when it can't run. */
+/**
+ * A sample must never block or slow an export: they would share the one ffmpeg instance and the
+ * device's hardware encoders. So an export stops every sample in flight and waits for it to settle
+ * before it starts, and no sample starts while an export is running.
+ */
+const samplesInFlight = new Set<{ stop(): void; settled: Promise<void> }>();
+let exportsRunning = 0;
+
+/**
+ * Encode a short sample around `atSec` with the real settings, on the fast engine only. Resolves
+ * null when it can't run: the fast engine can't read or encode the file, or an export is running
+ * (or starts meanwhile). Rejects with `ExportCanceledError` when `options.signal` aborts.
+ */
 export async function previewSample(
   recipe: EditRecipe,
   atSec: number,
   options: { signal?: AbortSignal } = {},
   deps?: ExportDeps
 ): Promise<SamplePreview | null> {
-  const signal = options.signal ?? new AbortController().signal;
+  const callerSignal = options.signal;
+  if (callerSignal?.aborted) throw new ExportCanceledError();
+  if (exportsRunning > 0) return null;
+
+  const controller = new AbortController();
+  const onCallerAbort = () => controller.abort();
+  callerSignal?.addEventListener("abort", onCallerAbort, { once: true });
+  let stoppedByExport = false;
+  const work = encodeSample(recipe, atSec, controller.signal, deps);
+  const entry = {
+    stop: () => {
+      stoppedByExport = true;
+      controller.abort();
+    },
+    settled: work.then(
+      () => {},
+      () => {}
+    ),
+  };
+  samplesInFlight.add(entry);
+  try {
+    return await work;
+  } catch (e) {
+    if (e instanceof EngineUnsupportedError) return null;
+    if (e instanceof ExportCanceledError && stoppedByExport && !callerSignal?.aborted) return null;
+    throw e;
+  } finally {
+    samplesInFlight.delete(entry);
+    callerSignal?.removeEventListener("abort", onCallerAbort);
+  }
+}
+
+async function encodeSample(
+  recipe: EditRecipe,
+  atSec: number,
+  signal: AbortSignal,
+  deps: ExportDeps | undefined
+): Promise<SamplePreview | null> {
   const checkAbort = () => {
     if (signal.aborted) throw new ExportCanceledError();
   };
-  checkAbort();
-  const p = await prepare(recipe, deps, () => {}, checkAbort);
-  const engine = p.d.engines.webcodecs;
-  const check = await engine.precheck(p.info, p.initialPlan, recipe.container);
+  // Fast reader only: a sample must never download or run ffmpeg.
+  const p = await prepare(recipe, deps, () => {}, checkAbort, { fastOnly: true });
+  const { plan, check } = await fastEnginePlan(p, recipe.container, () => {});
   if (!check.ok) return null;
   checkAbort();
-  const window = sampleWindow(p.trim, p.info.durationSec, atSec);
-  const blob = await engine.encode({
+  const sampleTrim = sampleWindow(p.trim, p.info.durationSec, atSec);
+  const blob = await p.d.engines.webcodecs.encode({
     file: recipe.file,
     info: p.info,
-    plan: p.initialPlan,
-    trim: window,
+    plan,
+    trim: sampleTrim,
     edits: { rotate: recipe.rotate, flipH: recipe.flipH, flipV: recipe.flipV, crop: p.crop, fit: p.fit },
     container: recipe.container,
     signal,
     onProgress: () => {},
     onEngineDownload: p.onEngineDownload,
   });
-  let estimatedBytes = Math.round(((p.initialPlan.videoBps + p.initialPlan.audioBps) * p.durationSec) / 8);
+  let estimatedBytes = Math.round(((plan.videoBps + plan.audioBps) * p.durationSec) / 8);
   if (p.targetBytes !== null) estimatedBytes = Math.min(estimatedBytes, p.targetBytes);
-  return { blob, window, estimatedBytes, plan: p.initialPlan };
+  return { blob, window: sampleTrim, estimatedBytes, plan };
 }
 
 export async function exportVideo(
@@ -219,6 +314,23 @@ export async function exportVideo(
   deps?: ExportDeps
 ): Promise<ExportResult> {
   const started = Date.now();
+  exportsRunning++;
+  try {
+    const samples = Array.from(samplesInFlight);
+    for (const s of samples) s.stop();
+    await Promise.all(samples.map((s) => s.settled));
+    return await runExport(recipe, options, deps, started);
+  } finally {
+    exportsRunning--;
+  }
+}
+
+async function runExport(
+  recipe: EditRecipe,
+  options: ExportOptions,
+  deps: ExportDeps | undefined,
+  started: number
+): Promise<ExportResult> {
   const signal = options.signal ?? new AbortController().signal;
   const status = (s: ExportStatus) => options.onStatus?.(s);
   const checkAbort = () => {
@@ -226,8 +338,8 @@ export async function exportVideo(
   };
 
   checkAbort();
-  const { d, info, trim, durationSec, crop, base, fit, sourceBps, planFor, initialPlan, targetBytes, onEngineDownload } =
-    await prepare(recipe, deps, status, checkAbort);
+  const p = await prepare(recipe, deps, status, checkAbort);
+  const { d, info, trim, durationSec, crop, fit, sourceBps, initialPlan, targetBytes, onEngineDownload } = p;
 
   const runOn = async (engine: VideoEngine, startPlan: EncodePlan): Promise<EngineRun> => {
     const baseJob: Omit<EncodeJob, "plan"> = {
@@ -237,7 +349,7 @@ export async function exportVideo(
       edits: { rotate: recipe.rotate, flipH: recipe.flipH, flipV: recipe.flipV, crop, fit },
       container: recipe.container,
       signal,
-      onProgress: (p) => options.onProgress?.(p),
+      onProgress: (fraction) => options.onProgress?.(fraction),
       onEngineDownload,
     };
     return targetBytes === null
@@ -265,21 +377,7 @@ export async function exportVideo(
     engineId = choice;
     run = await runOn(d.engines[choice], initialPlan);
   } else {
-    let plan = initialPlan;
-    let check = await d.engines.webcodecs.precheck(info, plan, recipe.container);
-    if (!check.ok && check.smallerMayWork) {
-      const baseShort = Math.min(base.width, base.height);
-      for (const s of STEP_DOWN_SHORT_SIDES.filter((x) => x < baseShort)) {
-        const smaller = { ...planFor(scaleToShortSide(base, s)), steppedDown: true };
-        const c = await d.engines.webcodecs.precheck(info, smaller, recipe.container);
-        if (c.ok) {
-          status({ phase: "smaller", width: smaller.width, height: smaller.height, reason: check.reason });
-          plan = smaller;
-          check = c;
-          break;
-        }
-      }
-    }
+    const { plan, check } = await fastEnginePlan(p, recipe.container, status);
     if (check.ok) {
       try {
         engineId = "webcodecs";
