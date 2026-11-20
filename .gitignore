@@ -39,3 +39,7 @@ __screenshots__/
 
 # ffmpeg.wasm assets copied from node_modules at dev/build time
 /public/ffmpeg/
+
+# playwright
+/test-results/
+/playwright-report/
