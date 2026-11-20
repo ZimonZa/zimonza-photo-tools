@@ -12,8 +12,21 @@ const LOG_TAIL_LINES = 20;
 
 /** One shared ffmpeg instance; dropped (and rebuilt on next use) after a cancel terminates it. */
 let instance: Promise<FFmpeg> | null = null;
-/** Whether the current instance has already run an encode. */
-let encodedBefore = false;
+/** Instances that have run a command (a probe or an encode); see the WebM rule in `encode`. */
+const usedInstances = new WeakSet<FFmpeg>();
+/**
+ * The core's wasm as a blob URL: downloaded (and its progress reported) once per page, then reused
+ * by every instance. Cleared only when the download itself fails, so the next use retries.
+ */
+let wasmBlobUrl: Promise<string> | null = null;
+
+function loadWasm(url: string, onProgress?: DownloadListener): Promise<string> {
+  wasmBlobUrl ??= downloadWithProgress(url, onProgress).catch((e) => {
+    wasmBlobUrl = null;
+    throw e;
+  });
+  return wasmBlobUrl;
+}
 
 async function downloadWithProgress(url: string, onProgress?: DownloadListener): Promise<string> {
   const res = await fetch(url);
@@ -37,10 +50,9 @@ function getFFmpeg(onDownload?: DownloadListener): Promise<FFmpeg> {
     const { FFmpeg } = await import("@ffmpeg/ffmpeg");
     const urls = ffmpegAssetUrls(BASE_PATH);
     const abs = (path: string) => new URL(path, location.href).href;
-    const wasmURL = await downloadWithProgress(abs(urls.wasmURL), onDownload);
+    const wasmURL = await loadWasm(abs(urls.wasmURL), onDownload);
     const ffmpeg = new FFmpeg();
     await ffmpeg.load({ coreURL: abs(urls.coreURL), wasmURL, classWorkerURL: abs(urls.classWorkerURL) });
-    encodedBefore = false;
     return ffmpeg;
   })().catch((e) => {
     instance = null;
@@ -69,6 +81,7 @@ async function withInput<T>(ffmpeg: FFmpeg, file: File, run: (path: string) => P
 /** Probe any container ffmpeg understands (AVI, WMV, FLV…). */
 export async function probeWithFfmpeg(file: File, onEngineDownload?: DownloadListener): Promise<VideoInfo> {
   const ffmpeg = await getFFmpeg(onEngineDownload);
+  usedInstances.add(ffmpeg);
   const logs: string[] = [];
   const onLog: LogEventCallback = ({ message }) => logs.push(message);
   ffmpeg.on("log", onLog);
@@ -87,16 +100,21 @@ async function encode(job: EncodeJob): Promise<Blob> {
   const { file, info, trim, plan, edits, container, signal, onProgress } = job;
   const OUT = container === "webm" ? "/out.webm" : "/out.mp4";
   if (signal.aborted) throw new ExportCanceledError();
-  // The core's libvpx-vp9 can crash ("memory access out of bounds") in a heap that earlier encodes
-  // used, so a WebM encode always starts from a fresh instance.
-  if (container === "webm" && encodedBefore && instance) {
-    const stale = instance;
-    instance = null;
-    (await stale.catch(() => null))?.terminate();
+  // Workaround: the self-hosted core's libvpx-vp9 can crash ("memory access out of bounds") in a heap
+  // that an earlier command used (seen after a probe's non-zero exit), so a WebM encode always starts
+  // on a fresh instance. Only the instance is rebuilt; the wasm download is reused. Remove this (and
+  // `usedInstances`) when the core is rebuilt or upgraded, with the VP9 workarounds in ffmpeg-args.
+  const current = instance;
+  if (container === "webm" && current) {
+    const previous = await current.catch(() => null);
+    if (previous && usedInstances.has(previous)) {
+      if (instance === current) instance = null;
+      previous.terminate();
+    }
   }
   const ffmpeg = await getFFmpeg(job.onEngineDownload);
   if (signal.aborted) throw new ExportCanceledError();
-  encodedBefore = true;
+  usedInstances.add(ffmpeg);
 
   const duration = trim ? trim.end - trim.start : info.durationSec;
   const tail: string[] = [];

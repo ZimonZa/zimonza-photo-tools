@@ -240,3 +240,27 @@ describe("ffmpegEngine applies the edits", () => {
     TIMEOUT
   );
 });
+
+describe("ffmpeg engine download", () => {
+  test(
+    "a probe and two WebM encodes (each on a fresh instance) download the engine at most once",
+    async () => {
+      let downloads = 0;
+      let lastLoaded = Infinity;
+      const onEngineDownload = (loaded: number) => {
+        // Each download reports from its first chunk up; a drop means a new one started.
+        if (loaded <= lastLoaded) downloads++;
+        lastLoaded = loaded;
+      };
+      const file = await makeTestClip({ seconds: 1, width: 320, height: 180, audio: true });
+      const info = await probeWithFfmpeg(file, onEngineDownload);
+      const plan = { width: 320, height: 180, videoBps: 300_000, audioBps: 96_000, steppedDown: false };
+      for (let pass = 1; pass <= 2; pass++) {
+        const out = await ffmpegEngine.encode(job({ file, info, trim: null, plan, container: "webm", onEngineDownload }));
+        expect(await inspectMp4(out), `pass ${pass}`).toMatchObject({ videoCodec: "vp9", audioCodec: "opus" });
+      }
+      expect(downloads).toBeLessThanOrEqual(1);
+    },
+    TIMEOUT * 2
+  );
+});
