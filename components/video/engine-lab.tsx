@@ -265,6 +265,11 @@ export function EngineLab() {
           <p className="text-xs text-muted-foreground">{caps}</p>
         </FieldGroup>
 
+        {muted && (
+          <p className="rounded-xl bg-amber-500/10 p-2 text-sm font-medium text-amber-400">
+            🔇 Mute is ON — the output will have no sound. Tap the Mute switch to turn it off.
+          </p>
+        )}
         <div className="flex gap-2">
           <Button variant="primary" onClick={run} disabled={!file || running} className="flex-1">
             {running ? "Running…" : "Run"}
