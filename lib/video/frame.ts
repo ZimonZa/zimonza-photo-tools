@@ -1,4 +1,5 @@
 /** Frame math for video edits: crop clamping, output size and fit, and the flip/rotate mapping. */
+import { InvalidSizeError } from "@/lib/video/errors";
 import { capLongSide, displaySize, toEven, type Rotation, type Size } from "@/lib/video/geometry";
 
 /** How a picture fills an output frame of another shape. */
@@ -32,6 +33,8 @@ export interface FrameEdits {
 
 /** Smallest crop side we keep, in px. */
 const MIN_CROP_SIDE = 16;
+/** Smallest output side we encode, in px. */
+const MIN_OUTPUT_SIDE = 16;
 /** Aspect ratios this close count as the same shape. */
 const SAME_SHAPE_TOLERANCE = 0.01;
 
@@ -39,10 +42,12 @@ const floorEven = (n: number) => Math.floor(n / 2) * 2;
 
 /**
  * Clip a crop to the picture and snap it to even numbers.
- * Returns `null` for no crop, a side under 16 px, or a crop that covers the whole picture.
+ * Returns `null` for no crop, a value that isn't a finite number, a side under 16 px, or a crop
+ * that covers the whole picture.
  */
 export function clampCrop(crop: CropRect | null, within: Size): CropRect | null {
   if (!crop) return null;
+  if (![crop.left, crop.top, crop.width, crop.height].every(Number.isFinite)) return null;
   const left = floorEven(Math.max(0, crop.left));
   const top = floorEven(Math.max(0, crop.top));
   const width = floorEven(Math.min(within.width, crop.left + crop.width) - left);
@@ -52,9 +57,17 @@ export function clampCrop(crop: CropRect | null, within: Size): CropRect | null 
   return { left, top, width, height };
 }
 
+/** An output size an engine can encode: finite and at least 16 px a side. */
+function checkedOutput(size: Size): Size {
+  const ok = (side: number) => Number.isFinite(side) && side >= MIN_OUTPUT_SIDE;
+  if (!ok(size.width) || !ok(size.height)) throw new InvalidSizeError();
+  return size;
+}
+
 /**
  * Work out the crop to apply, the size before any fit (`base`), and whether the picture needs
  * a fit mode to fill the frame. `display` is the source's display size, before the user's rotation.
+ * Throws `InvalidSizeError` when the output would be under 16 px a side or isn't a number.
  */
 export function resolveFrame(
   display: Size,
@@ -67,17 +80,17 @@ export function resolveFrame(
   const picture: Size = clamped ? { width: clamped.width, height: clamped.height } : rotated;
 
   if (frame.kind === "source") {
-    return { crop: clamped, base: capLongSide(picture, frame.maxLongSide), fit: null };
+    return { crop: clamped, base: checkedOutput(capLongSide(picture, frame.maxLongSide)), fit: null };
   }
   if (frame.kind === "percent") {
     const p = Math.min(100, Math.max(1, frame.percent));
     return {
       crop: clamped,
-      base: { width: toEven((picture.width * p) / 100), height: toEven((picture.height * p) / 100) },
+      base: checkedOutput({ width: toEven((picture.width * p) / 100), height: toEven((picture.height * p) / 100) }),
       fit: null,
     };
   }
-  const base = { width: toEven(frame.width), height: toEven(frame.height) };
+  const base = checkedOutput({ width: toEven(frame.width), height: toEven(frame.height) });
   const sameShape =
     Math.abs(base.width / base.height / (picture.width / picture.height) - 1) <= SAME_SHAPE_TOLERANCE;
   return { crop: clamped, base, fit: sameShape ? null : frame.fit };

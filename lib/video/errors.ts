@@ -7,6 +7,13 @@ export class InvalidTrimError extends Error {
   }
 }
 
+export class InvalidSizeError extends Error {
+  constructor(message = "The output size is too small or not a number.") {
+    super(message);
+    this.name = "InvalidSizeError";
+  }
+}
+
 export class TargetTooSmallError extends Error {
   /** Smallest target (bytes) that would still give watchable quality for this length. */
   readonly minBytes: number;

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { InvalidSizeError } from "@/lib/video/errors";
 import { clampCrop, mediabunnyTransform, resolveFrame } from "@/lib/video/frame";
 
 describe("clampCrop", () => {
@@ -21,6 +22,13 @@ describe("clampCrop", () => {
     expect(clampCrop({ left: 0, top: 0, width: 10, height: 300 }, { width: 200, height: 400 })).toBeNull();
     expect(clampCrop({ left: 0, top: 0, width: 200, height: 400 }, { width: 200, height: 400 })).toBeNull();
     expect(clampCrop(null, { width: 200, height: 400 })).toBeNull();
+  });
+
+  test("a crop with a value that isn't a number counts as no crop", () => {
+    const within = { width: 640, height: 360 };
+    expect(clampCrop({ left: NaN, top: 0, width: 100, height: 100 }, within)).toBeNull();
+    expect(clampCrop({ left: 0, top: 0, width: NaN, height: 100 }, within)).toBeNull();
+    expect(clampCrop({ left: 0, top: 0, width: 100, height: Infinity }, within)).toBeNull();
   });
 });
 
@@ -66,6 +74,36 @@ describe("resolveFrame", () => {
     expect(
       resolveFrame({ width: 1920, height: 1080 }, 0, null, { kind: "exact", width: 1081, height: 1921, fit: "cover" }).base
     ).toEqual({ width: 1080, height: 1920 });
+  });
+
+  describe("degenerate output sizes never reach an engine", () => {
+    const display = { width: 640, height: 360 };
+    const resolve = (frame: Parameters<typeof resolveFrame>[3]) => () => resolveFrame(display, 0, null, frame);
+
+    test("an exact side that isn't a number", () => {
+      expect(resolve({ kind: "exact", width: NaN, height: 360, fit: "cover" })).toThrow(InvalidSizeError);
+      expect(resolve({ kind: "exact", width: 640, height: Infinity, fit: "cover" })).toThrow(InvalidSizeError);
+    });
+
+    test("an exact size under 16 px a side", () => {
+      expect(resolve({ kind: "exact", width: 10, height: 10, fit: "cover" })).toThrow(InvalidSizeError);
+      expect(resolve({ kind: "exact", width: 640, height: 14, fit: "cover" })).toThrow(
+        "The output size is too small or not a number."
+      );
+    });
+
+    test("a percent that leaves under 16 px a side, or isn't a number", () => {
+      // 1% of 640x360 is 6x2.
+      expect(resolve({ kind: "percent", percent: 1 })).toThrow(InvalidSizeError);
+      expect(resolve({ kind: "percent", percent: NaN })).toThrow(InvalidSizeError);
+    });
+
+    test("16 px a side is still allowed", () => {
+      expect(resolveFrame(display, 0, null, { kind: "exact", width: 16, height: 16, fit: "cover" }).base).toEqual({
+        width: 16,
+        height: 16,
+      });
+    });
   });
 });
 

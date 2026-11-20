@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, FieldGroup, NumberField, Segmented, SelectField, Toggle } from "@/components/ui";
 import { formatBytes } from "@/lib/utils";
-import { ExportCanceledError, InvalidTrimError, TargetTooSmallError } from "@/lib/video/errors";
+import { ExportCanceledError, InvalidSizeError, InvalidTrimError, TargetTooSmallError } from "@/lib/video/errors";
 import type { VideoInfo } from "@/lib/video/engines/types";
 import type { ExportResult, ExportStatus } from "@/lib/video/export";
 import type { FitMode, OutputFrame } from "@/lib/video/frame";
@@ -17,6 +17,7 @@ type SizeKind = "target" | "quality";
 type FrameKind = "source" | "percent" | "exact";
 
 const ACCEPT = "video/*,.mov,.mkv,.avi,.wmv,.flv,.3gp,.m4v";
+const INVALID_SIZE_NOTE = "Output size is too small or not a number. Use at least 16 px a side.";
 
 function mb(bytes: number): string {
   return `${(bytes / MB).toFixed(2)} MB`;
@@ -245,7 +246,15 @@ export function EngineLab() {
         setSampleNote(null);
       }
     } catch (e) {
-      setSampleNote(e instanceof ExportCanceledError ? "Canceled." : e instanceof Error ? `${e.name}: ${e.message}` : String(e));
+      setSampleNote(
+        e instanceof ExportCanceledError
+          ? "Canceled."
+          : e instanceof InvalidSizeError
+            ? INVALID_SIZE_NOTE
+            : e instanceof Error
+              ? `${e.name}: ${e.message}`
+              : String(e)
+      );
     } finally {
       setPreviewing(false);
       previewControllerRef.current = null;
@@ -306,6 +315,8 @@ export function EngineLab() {
         setError(`Target too small for this length. Try at least ${Math.ceil(e.minBytes / 100_000) / 10} MB, or trim the video.`);
       } else if (e instanceof InvalidTrimError) {
         setError("Trim range is too short or outside the video.");
+      } else if (e instanceof InvalidSizeError) {
+        setError(INVALID_SIZE_NOTE);
       } else if (e instanceof ExportCanceledError) {
         setError("Canceled.");
       } else {
