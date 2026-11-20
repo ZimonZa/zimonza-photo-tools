@@ -84,9 +84,8 @@ export interface VideoState {
 /** Real engines; export.ts pulls in the encoders, so it is only imported when an export or sample runs. */
 export const defaultDeps: VideoStoreDeps = {
   probe: async (file) => (await import("@/lib/video/export")).probeVideo(file),
-  // Task 4 swaps these two placeholders for the real playback helpers.
-  canPlay: async () => true,
-  makeProxy: async () => null,
+  canPlay: async (file) => (await import("@/lib/video/playback")).canPlayNatively(file),
+  makeProxy: async (file, info, signal) => (await import("@/lib/video/playback")).makePreviewProxy(file, info, signal),
   exportVideo: async (recipe, options) => (await import("@/lib/video/export")).exportVideo(recipe, options),
   previewSample: async (recipe, atSec, options) => (await import("@/lib/video/export")).previewSample(recipe, atSec, options),
   objectUrl: (b) => URL.createObjectURL(b),

@@ -1,8 +1,12 @@
 "use client";
 
 import { RotateCcw } from "lucide-react";
+import { QualitySwitch } from "./quality-switch";
 
-/** File name and the New video action. On desktop the estimate line is laid over the middle of this bar. */
+/**
+ * File name, the New video action and, on desktop, the Preview quality switch (phones show it
+ * next to the preview). On desktop the estimate line is laid over the middle of this bar.
+ */
 export function TopBar({ fileName, onNewVideo }: { fileName: string; onNewVideo: () => void }) {
   return (
     <header className="flex h-14 items-center gap-3 border-b border-border bg-card/60 px-3 lg:col-span-3 lg:col-start-1 lg:row-start-1">
@@ -17,6 +21,9 @@ export function TopBar({ fileName, onNewVideo }: { fileName: string; onNewVideo:
         <RotateCcw className="h-4 w-4" />
         New video
       </button>
+      <div className="hidden lg:ml-auto lg:block">
+        <QualitySwitch />
+      </div>
     </header>
   );
 }

@@ -46,7 +46,7 @@ test("layout: top bar sits in the left column on desktop; the studio fits the vi
   const header = page.locator("body > div > header").first();
   if (info.project.name === "desktop") {
     const name = await box(page.getByText("test-clip.mp4"));
-    const preview = await box(page.getByLabel("Preview"));
+    const preview = await box(page.getByLabel("Preview", { exact: true }));
     expect(name.x).toBeLessThan(preview.x);
   }
   const checkFits = async () => {

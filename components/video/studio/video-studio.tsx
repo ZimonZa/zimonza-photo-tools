@@ -2,11 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { VolumeX } from "lucide-react";
-import { useVideoStore } from "@/store/useVideoStore";
+import { useVideoStore, type ToolId } from "@/store/useVideoStore";
 import { planOutput } from "@/lib/video/plan-output";
 import { describeExportError } from "@/lib/video/messages";
 import { MB } from "@/lib/video/recipe";
 import { BottomSheet } from "./bottom-sheet";
+import { RotatePanel } from "./panels/rotate-panel";
+import { PreviewPlayer } from "./preview-player";
 import { TOOLS, ToolRail } from "./tool-rail";
 import { TopBar } from "./top-bar";
 import { VideoDropzone } from "./video-dropzone";
@@ -71,7 +73,8 @@ function EstimateLine() {
   );
 }
 
-function ToolPanel({ label }: { label: string }) {
+function ToolPanel({ tool, label }: { tool: ToolId; label: string }) {
+  if (tool === "rotate") return <RotatePanel />;
   return <p className="text-sm text-muted-foreground">{label} settings will appear here.</p>;
 }
 
@@ -103,11 +106,8 @@ function EditorShell() {
       className="flex flex-col overflow-hidden lg:grid lg:grid-cols-[72px_1fr_340px] lg:grid-rows-[auto_1fr_auto]">
       <TopBar fileName={load.file.name} onNewVideo={reset} />
 
-      <section
-        aria-label="Preview"
-        className="flex min-h-0 flex-1 items-center justify-center bg-black/30 p-3 text-sm text-muted-foreground lg:col-start-2 lg:row-start-2"
-      >
-        Preview
+      <section aria-label="Preview" className="flex min-h-0 min-w-0 flex-1 flex-col bg-black/30 lg:col-start-2 lg:row-start-2">
+        <PreviewPlayer file={load.file} info={load.info} previewUrl={load.previewUrl} proxy={load.proxy} />
       </section>
 
       <section
@@ -135,12 +135,12 @@ function EditorShell() {
         className="hidden border-l border-border bg-card/40 p-4 lg:col-start-3 lg:row-start-2 lg:block"
       >
         <h2 className="mb-3 font-display text-base font-semibold">{toolLabel}</h2>
-        <ToolPanel label={toolLabel} />
+        <ToolPanel tool={tool} label={toolLabel} />
       </aside>
 
       {sheetOpen && (
         <BottomSheet title={toolLabel} onClose={() => setSheetOpen(false)}>
-          <ToolPanel label={toolLabel} />
+          <ToolPanel tool={tool} label={toolLabel} />
         </BottomSheet>
       )}
     </div>
