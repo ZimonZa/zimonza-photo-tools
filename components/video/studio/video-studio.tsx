@@ -8,7 +8,9 @@ import { describeExportError } from "@/lib/video/messages";
 import { MB } from "@/lib/video/recipe";
 import { BottomSheet } from "./bottom-sheet";
 import { RotatePanel } from "./panels/rotate-panel";
+import { TrimPanel } from "./panels/trim-panel";
 import { PreviewPlayer } from "./preview-player";
+import { Timeline } from "./timeline";
 import { TOOLS, ToolRail } from "./tool-rail";
 import { TopBar } from "./top-bar";
 import { VideoDropzone } from "./video-dropzone";
@@ -74,6 +76,7 @@ function EstimateLine() {
 }
 
 function ToolPanel({ tool, label }: { tool: ToolId; label: string }) {
+  if (tool === "trim") return <TrimPanel />;
   if (tool === "rotate") return <RotatePanel />;
   return <p className="text-sm text-muted-foreground">{label} settings will appear here.</p>;
 }
@@ -112,9 +115,9 @@ function EditorShell() {
 
       <section
         aria-label="Timeline"
-        className="flex h-16 items-center justify-center border-t border-border bg-card/40 px-3 text-sm text-muted-foreground lg:col-span-3 lg:row-start-3 lg:h-24"
+        className="flex h-[88px] flex-col justify-center border-t border-border bg-card/40 px-3 lg:col-span-3 lg:row-start-3 lg:h-[104px]"
       >
-        Timeline
+        <Timeline file={load.file} info={load.info} />
       </section>
 
       <EstimateLine />

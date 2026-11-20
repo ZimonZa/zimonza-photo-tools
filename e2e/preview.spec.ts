@@ -26,10 +26,9 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByText("Drop a video here")).toBeVisible();
 });
 
-test("the preview canvas shows the clip and changes while playing", async ({ page }, info) => {
+test("the preview canvas shows the clip and changes while playing", async ({ page }) => {
   await openClip(page);
-  // Computers start on the compressed sample; the live preview is the Original view.
-  if (info.project.name === "desktop") await page.getByRole("button", { name: "Original" }).click();
+  // The preview starts on the live Original view.
   const canvas = previewCanvas(page);
   const box = (await canvas.boundingBox())!;
   expect(box.width).toBeGreaterThan(0);
@@ -41,8 +40,8 @@ test("the preview canvas shows the clip and changes while playing", async ({ pag
   await expect.poll(() => fingerprint(canvas)).not.toBe(0);
 
   const before = await fingerprint(canvas);
-  await page.getByRole("button", { name: "Play" }).click();
-  await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
   await expect.poll(() => fingerprint(canvas), { timeout: 10_000 }).not.toBe(before);
 });
 

@@ -41,6 +41,12 @@ export interface QualityState {
   estimatedBytes: number | null;
 }
 
+/** A user-initiated seek; `id` changes on every call, so seeking to the same time twice still moves the video. */
+export interface SeekRequest {
+  time: number;
+  id: number;
+}
+
 export interface VideoStoreDeps {
   probe(file: File): Promise<VideoInfo>;
   canPlay(file: File): Promise<boolean>;
@@ -61,7 +67,11 @@ export interface VideoState {
   presetId: PresetId;
   targetMb: number;
   tool: ToolId;
+  /** Where the clip was last paused, looped or sought. Quality samples start here. */
   playhead: number;
+  /** The video's live time for the timeline; changes while playing and never restarts a quality sample. */
+  currentTime: number;
+  seekRequest: SeekRequest;
   quality: QualityState;
   exportState: ExportState;
 
@@ -72,7 +82,12 @@ export interface VideoState {
   choosePreset(id: PresetId): void;
   setTargetMb(mb: number): void;
   setTool(t: ToolId): void;
+  /** The player reports where the video paused or looped. Use `seek` to move the video. */
   setPlayhead(t: number): void;
+  /** Move the video (and the playhead) to `t`; the preview seeks on every call, even to the same time. */
+  seek(t: number): void;
+  /** The player reports its live time. */
+  reportTime(t: number): void;
   setQualityEnabled(on: boolean): void;
   setPreviewMode(m: "original" | "compressed"): void;
   startExport(): Promise<void>;
@@ -108,8 +123,9 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
   let exportAbort: AbortController | null = null;
   let exportRun = 0;
   let fallbackResolve: ((ok: boolean) => void) | null = null;
+  let seekId = 0;
 
-  const initialQuality = (enabled: boolean, mode: QualityState["mode"] = "compressed"): QualityState => ({
+  const initialQuality = (enabled: boolean, mode: QualityState["mode"] = "original"): QualityState => ({
     enabled,
     mode,
     status: "idle",
@@ -195,18 +211,20 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
       if (exportState.kind === "done") deps.revoke(exportState.url);
     };
 
-    const clipDefaults = (): Pick<VideoState, "recipe" | "presetId" | "targetMb" | "tool" | "playhead" | "exportState"> => ({
+    const clipDefaults = (): Pick<VideoState, "recipe" | "presetId" | "targetMb" | "tool" | "playhead" | "currentTime" | "exportState"> => ({
       recipe: { ...BASE_RECIPE },
       presetId: "custom",
       targetMb: DEFAULT_TARGET_MB,
       tool: "trim",
       playhead: 0,
+      currentTime: 0,
       exportState: { kind: "idle" },
     });
 
     return {
       load: { kind: "empty" },
       ...clipDefaults(),
+      seekRequest: { time: 0, id: 0 },
       quality: initialQuality(!deps.isMobile()),
 
       async openFile(file) {
@@ -296,6 +314,13 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
         set({ playhead: t });
         scheduleSample();
       },
+
+      seek(t) {
+        set({ playhead: t, currentTime: t, seekRequest: { time: t, id: ++seekId } });
+        scheduleSample();
+      },
+
+      reportTime: (t) => set({ currentTime: t }),
 
       setQualityEnabled(on) {
         set((s) => ({ quality: { ...s.quality, enabled: on } }));

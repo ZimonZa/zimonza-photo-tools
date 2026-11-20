@@ -21,6 +21,14 @@ export function dragTrim(trim: TrimRange, handle: "start" | "end", t: number, du
   return { start: trim.start, end: clamp(t, Math.min(durationSec, trim.start + MIN_TRIM), durationSec) };
 }
 
+/** A trim range as the store keeps it: rounded to 0.01 s, and `null` when it covers the whole clip. */
+export function trimOrNull(trim: TrimRange, durationSec: number): TrimRange | null {
+  const round = (n: number) => Math.min(durationSec, Math.max(0, Math.round(n * 100) / 100));
+  const start = round(trim.start);
+  const end = round(trim.end);
+  return start <= 0 && end >= durationSec ? null : { start, end };
+}
+
 /** "0:08.6", "1:02.0", "12:05.3". */
 export function formatTime(sec: number): string {
   const tenths = Math.round(Math.max(0, sec) * 10);

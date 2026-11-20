@@ -182,6 +182,22 @@ describe("quality sample", () => {
     expect(createVideoStore(makeDeps({ isMobile: () => true }).deps).getState().quality.enabled).toBe(false);
   });
 
+  test("the preview starts on the live Original view", () => {
+    expect(createVideoStore(makeDeps().deps).getState().quality.mode).toBe("original");
+  });
+
+  test("seek sets the playhead and gives every call its own request id", () => {
+    const store = createVideoStore(makeDeps().deps);
+    store.getState().seek(5);
+    const first = store.getState().seekRequest;
+    expect(store.getState().playhead).toBe(5);
+    expect(first.time).toBe(5);
+    store.getState().seek(5);
+    const second = store.getState().seekRequest;
+    expect(second.time).toBe(5);
+    expect(second.id).not.toBe(first.id);
+  });
+
   test("runs 1 s after the last change and only the latest result is kept", async () => {
     const first = deferred<SamplePreview | null>();
     const second = deferred<SamplePreview | null>();

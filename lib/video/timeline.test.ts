@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { dragTrim, formatTime, timeToX, xToTime } from "@/lib/video/timeline";
+import { dragTrim, formatTime, trimOrNull, timeToX, xToTime } from "@/lib/video/timeline";
 
 describe("timeline", () => {
   test("time and x map both ways, clamped", () => {
@@ -14,6 +14,13 @@ describe("timeline", () => {
     expect(dragTrim({ start: 10, end: 20 }, "end", 5, 60)).toEqual({ start: 10, end: 10.1 });
     expect(dragTrim({ start: 10, end: 20 }, "end", 99, 60)).toEqual({ start: 10, end: 60 });
     expect(dragTrim({ start: 10, end: 20 }, "start", -3, 60)).toEqual({ start: 0, end: 20 });
+  });
+
+  test("trimOrNull rounds to 0.01 s and drops a trim that covers the whole clip", () => {
+    expect(trimOrNull({ start: 0, end: 4.036 }, 4.036)).toBeNull();
+    expect(trimOrNull({ start: 0.004, end: 4.04 }, 4.036)).toBeNull();
+    expect(trimOrNull({ start: 1.2349, end: 2.5 }, 4.036)).toEqual({ start: 1.23, end: 2.5 });
+    expect(trimOrNull({ start: 0, end: 3.9 }, 4.036)).toEqual({ start: 0, end: 3.9 });
   });
 
   test("formatTime shows minutes:seconds with one decimal", () => {

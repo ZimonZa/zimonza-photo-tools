@@ -18,8 +18,8 @@ const MODES = [
 
 /** A store playhead this far from the video's time is a seek, not our own report. */
 const SEEK_TOLERANCE_SEC = 0.05;
-/** A jump back this large while playing means the element looped by itself. */
-const WRAP_SEC = 0.5;
+/** The first frame can sit at the file's start offset; this is how close counts as "the same". */
+const OFFSET_TOLERANCE_SEC = 0.2;
 
 /** The part of the clip that plays: the trim, or the whole clip. */
 function playRange(frame: PreviewFrame, durationSec: number): { start: number; end: number } {
@@ -27,6 +27,7 @@ function playRange(frame: PreviewFrame, durationSec: number): { start: number; e
 }
 
 const tenths = (t: number) => Math.round(t * 10) / 10;
+const hundredths = (t: number) => Math.round(t * 100) / 100;
 
 /** The largest `out`-shaped box that fits inside `ref`'s element, kept up to date on resize. */
 function useContainBox(ref: RefObject<HTMLElement>, out: Size): Size | null {
@@ -94,8 +95,9 @@ export interface PreviewPlayerProps {
 export function PreviewPlayer({ file, info, previewUrl, proxy }: PreviewPlayerProps) {
   const recipe = useVideoStore((s) => s.recipe);
   const quality = useVideoStore((s) => s.quality);
-  const playhead = useVideoStore((s) => s.playhead);
+  const seekRequest = useVideoStore((s) => s.seekRequest);
   const setPlayhead = useVideoStore((s) => s.setPlayhead);
+  const reportTime = useVideoStore((s) => s.reportTime);
   const setPreviewMode = useVideoStore((s) => s.setPreviewMode);
 
   const frame = useMemo(() => previewFrame(info, { ...recipe, file }), [info, recipe, file]);
@@ -104,7 +106,9 @@ export function PreviewPlayer({ file, info, previewUrl, proxy }: PreviewPlayerPr
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef(frame);
-  const lastTime = useRef(0);
+  /** Seconds the `<video>` clock runs ahead of the clip's own (the file's first timestamp, in browsers that keep it). */
+  const offsetRef = useRef(0);
+  const lastSeekId = useRef(seekRequest.id);
   const box = useContainBox(stageRef, frame.out);
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
@@ -136,28 +140,38 @@ export function PreviewPlayer({ file, info, previewUrl, proxy }: PreviewPlayerPr
     draw();
   }, [frame, canvasSize.width, canvasSize.height, draw]);
 
-  // Per-frame drawing and the trim loop, for the life of this source.
+  // Per-frame drawing and the trim loop, for the life of this source. Times here are clip time (trim time);
+  // `at` / `clipTime` convert from and to the element's clock.
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     const hasFrameCallback = typeof video.requestVideoFrameCallback === "function";
     let frameHandle: number | null = null;
     let rafHandle: number | null = null;
+    const clipTime = () => video.currentTime - offsetRef.current;
+    const at = (t: number) => {
+      video.currentTime = t + offsetRef.current;
+    };
+    const show = (t: number) => {
+      setTime(tenths(t));
+      reportTime(hundredths(t));
+    };
+    /** Wrap to the trim start and keep playing. */
+    const loopBack = (start: number) => {
+      at(start);
+      show(start);
+      setPlayhead(start);
+      if (video.paused) void video.play().catch(() => {});
+    };
 
     const onFrame = () => {
-      const t = video.currentTime;
+      const t = clipTime();
       const { start, end } = playRange(frameRef.current, info.durationSec);
       if (!video.paused && (t >= end || t < start - SEEK_TOLERANCE_SEC)) {
-        // Past the trim end (or before its start): loop back to the start.
-        video.currentTime = start;
-        lastTime.current = start;
-        setTime(tenths(start));
-        setPlayhead(start);
+        loopBack(start);
         return;
       }
-      if (!video.paused && t + WRAP_SEC < lastTime.current) setPlayhead(t);
-      lastTime.current = t;
-      setTime(tenths(t));
+      show(t);
       draw();
     };
     const frameLoop = () => {
@@ -180,56 +194,63 @@ export function PreviewPlayer({ file, info, previewUrl, proxy }: PreviewPlayerPr
     const onPause = () => {
       setPlaying(false);
       stopRaf();
-      lastTime.current = video.currentTime;
-      setTime(tenths(video.currentTime));
-      setPlayhead(video.currentTime);
+      show(clipTime());
+      setPlayhead(clipTime());
     };
+    const onEnded = () => loopBack(playRange(frameRef.current, info.durationSec).start);
     const onLoaded = () => {
+      // Some browsers show the first frame at the file's own start time; keep our clock relative to it.
+      offsetRef.current =
+        info.startSec > 0 && Math.abs(video.currentTime - info.startSec) < OFFSET_TOLERANCE_SEC ? info.startSec : 0;
       const { start } = playRange(frameRef.current, info.durationSec);
-      if (video.currentTime < start) video.currentTime = start;
+      if (clipTime() < start) at(start);
       draw();
     };
     const onSeeked = () => {
-      setTime(tenths(video.currentTime));
+      show(clipTime());
       draw();
     };
 
     if (hasFrameCallback) frameHandle = video.requestVideoFrameCallback(frameLoop);
     video.addEventListener("play", onPlay);
     video.addEventListener("pause", onPause);
+    video.addEventListener("ended", onEnded);
     video.addEventListener("loadeddata", onLoaded);
     video.addEventListener("seeked", onSeeked);
     return () => {
       video.removeEventListener("play", onPlay);
       video.removeEventListener("pause", onPause);
+      video.removeEventListener("ended", onEnded);
       video.removeEventListener("loadeddata", onLoaded);
       video.removeEventListener("seeked", onSeeked);
       if (frameHandle !== null) video.cancelVideoFrameCallback(frameHandle);
       stopRaf();
       video.pause();
     };
-  }, [previewUrl, info.durationSec, draw, setPlayhead]);
+  }, [previewUrl, info.durationSec, info.startSec, draw, setPlayhead, reportTime]);
 
-  // A seek from elsewhere (the timeline) moves the video.
+  // A user seek (timeline, keyboard) moves the video. It has its own request id, so seeking to the
+  // time the store already holds still moves a video that has played on.
   useEffect(() => {
+    if (seekRequest.id === lastSeekId.current) return;
+    lastSeekId.current = seekRequest.id;
     const video = videoRef.current;
-    if (!video || Math.abs(video.currentTime - playhead) < SEEK_TOLERANCE_SEC) return;
-    video.currentTime = playhead;
-    lastTime.current = playhead;
-    setTime(tenths(playhead));
-  }, [playhead, previewUrl]);
+    if (!video) return;
+    video.currentTime = seekRequest.time + offsetRef.current;
+    setTime(tenths(seekRequest.time));
+  }, [seekRequest]);
 
   // A new trim that leaves the video outside it moves the video to its start.
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    const t = video.currentTime;
+    const t = video.currentTime - offsetRef.current;
     if (t >= rangeStart - SEEK_TOLERANCE_SEC && t <= rangeEnd) return;
-    video.currentTime = rangeStart;
-    lastTime.current = rangeStart;
+    video.currentTime = rangeStart + offsetRef.current;
     setTime(tenths(rangeStart));
+    reportTime(hundredths(rangeStart));
     setPlayhead(rangeStart);
-  }, [rangeStart, rangeEnd, previewUrl, setPlayhead]);
+  }, [rangeStart, rangeEnd, previewUrl, setPlayhead, reportTime]);
 
   useEffect(() => {
     if (videoRef.current) videoRef.current.muted = recipe.muted;
@@ -248,7 +269,8 @@ export function PreviewPlayer({ file, info, previewUrl, proxy }: PreviewPlayerPr
       return;
     }
     const { start, end } = playRange(frameRef.current, info.durationSec);
-    if (video.currentTime < start || video.currentTime >= end) video.currentTime = start;
+    const t = video.currentTime - offsetRef.current;
+    if (t < start || t >= end) video.currentTime = start + offsetRef.current;
     void video.play().catch(() => {});
   };
 
@@ -266,7 +288,6 @@ export function PreviewPlayer({ file, info, previewUrl, proxy }: PreviewPlayerPr
               src={previewUrl}
               muted={recipe.muted}
               playsInline
-              loop
               preload="auto"
               aria-hidden
               tabIndex={-1}
