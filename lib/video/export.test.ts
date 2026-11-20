@@ -2,7 +2,14 @@ import { describe, expect, test } from "vitest";
 import { maxVideoBps, nextVideoBps } from "@/lib/video/bitrate";
 import type { EncodeJob, SupportCheck, VideoEngine, VideoInfo } from "@/lib/video/engines/types";
 import { ExportCanceledError, TargetNotReachedError, TargetTooSmallError } from "@/lib/video/errors";
-import { createProbe, exportVideo, type ExportDeps, type ExportStatus } from "@/lib/video/export";
+import {
+  createProbe,
+  exportVideo,
+  previewSample,
+  sampleWindow,
+  type ExportDeps,
+  type ExportStatus,
+} from "@/lib/video/export";
 import { BASE_RECIPE, MB, type EditRecipe } from "@/lib/video/recipe";
 
 const INFO: VideoInfo = {
@@ -323,5 +330,55 @@ describe("result", () => {
     expect(wc.jobs[0].container).toBe("webm");
     expect(wc.jobs[0].plan).toMatchObject({ width: 1080, height: 1350 });
     expect(result.fileName).toBe("Trip-zimonza.webm");
+  });
+});
+
+describe("sampleWindow", () => {
+  test("centres a 3 s window on the playhead, clamped to the usable range", () => {
+    expect(sampleWindow(null, 60, 30)).toEqual({ start: 28.5, end: 31.5 });
+    expect(sampleWindow(null, 60, 59)).toEqual({ start: 57, end: 60 });
+    expect(sampleWindow(null, 60, 0)).toEqual({ start: 0, end: 3 });
+    expect(sampleWindow({ start: 10, end: 20 }, 60, 19.5)).toEqual({ start: 17, end: 20 });
+    expect(sampleWindow({ start: 10, end: 20 }, 60, 2)).toEqual({ start: 10, end: 13 });
+    expect(sampleWindow(null, 2, 1)).toEqual({ start: 0, end: 2 });
+  });
+});
+
+describe("previewSample", () => {
+  test("encodes one window with the full export's plan", async () => {
+    const wc = fakeEngine("webcodecs");
+    const ff = fakeEngine("ffmpeg");
+    const r = await previewSample(recipe({ size: { kind: "quality", level: "balanced" } }), 30, {}, deps(wc, ff));
+    expect(r).not.toBeNull();
+    expect(wc.jobs).toHaveLength(1);
+    expect(wc.jobs[0].trim).toEqual({ start: 28.5, end: 31.5 });
+    expect(r!.window).toEqual({ start: 28.5, end: 31.5 });
+    expect(r!.plan.videoBps).toBe(3_732_480);
+    expect(r!.estimatedBytes).toBe(28_953_600);
+    expect(ff.jobs).toHaveLength(0);
+  });
+
+  test("target mode estimate never exceeds the target", async () => {
+    const wc = fakeEngine("webcodecs");
+    const r = await previewSample(recipe({ size: TARGET_20 }), 30, {}, deps(wc, fakeEngine("ffmpeg")));
+    expect(r!.estimatedBytes).toBeLessThanOrEqual(20_000_000);
+  });
+
+  test("no sample when the fast engine can't run", async () => {
+    const wc = fakeEngine("webcodecs", { precheck: { ok: false, reason: "no encoder" } });
+    const ff = fakeEngine("ffmpeg");
+    expect(await previewSample(recipe(), 30, {}, deps(wc, ff))).toBeNull();
+    expect(wc.jobs).toHaveLength(0);
+    expect(ff.jobs).toHaveLength(0);
+  });
+
+  test("an already-aborted signal cancels before encoding", async () => {
+    const wc = fakeEngine("webcodecs");
+    const ac = new AbortController();
+    ac.abort();
+    await expect(previewSample(recipe(), 30, { signal: ac.signal }, deps(wc, fakeEngine("ffmpeg")))).rejects.toBeInstanceOf(
+      ExportCanceledError
+    );
+    expect(wc.jobs).toHaveLength(0);
   });
 });

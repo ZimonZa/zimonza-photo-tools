@@ -13,7 +13,7 @@ import { resolveFrame } from "@/lib/video/frame";
 import type { EngineId, EncodeJob, VideoEngine, VideoInfo } from "@/lib/video/engines/types";
 import { scaleToShortSide, type Size } from "@/lib/video/geometry";
 import { ExportCanceledError, TargetNotReachedError } from "@/lib/video/errors";
-import { normalizeTrim, outputFileName, type EditRecipe } from "@/lib/video/recipe";
+import { normalizeTrim, outputFileName, type EditRecipe, type TrimRange } from "@/lib/video/recipe";
 
 export type ExportStatus =
   | { phase: "probing" }
@@ -86,21 +86,30 @@ interface EngineRun {
   attempts: number;
 }
 
-export async function exportVideo(
+interface Prepared {
+  d: ExportDeps;
+  info: VideoInfo;
+  trim: TrimRange | null;
+  durationSec: number;
+  crop: ReturnType<typeof resolveFrame>["crop"];
+  base: Size;
+  fit: ReturnType<typeof resolveFrame>["fit"];
+  sourceBps: number | null;
+  planFor: (src: Size) => EncodePlan;
+  initialPlan: EncodePlan;
+  targetBytes: number | null;
+  onEngineDownload: DownloadListener;
+}
+
+/** Shared by export and preview: probe, normalize the trim, resolve the frame, plan the bitrate. */
+async function prepare(
   recipe: EditRecipe,
-  options: ExportOptions = {},
-  deps?: ExportDeps
-): Promise<ExportResult> {
-  const started = Date.now();
-  const signal = options.signal ?? new AbortController().signal;
-  const status = (s: ExportStatus) => options.onStatus?.(s);
+  deps: ExportDeps | undefined,
+  status: (s: ExportStatus) => void,
+  checkAbort: () => void
+): Promise<Prepared> {
   const onEngineDownload = (loadedBytes: number, totalBytes: number | null) =>
     status({ phase: "loading-engine", engine: "ffmpeg", loadedBytes, totalBytes });
-  const checkAbort = () => {
-    if (signal.aborted) throw new ExportCanceledError();
-  };
-
-  checkAbort();
   const d = deps ?? (await loadDefaultDeps());
   status({ phase: "probing" });
   const info = await d.probe(recipe.file, onEngineDownload, (reason) => status({ phase: "probe-fallback", reason }));
@@ -115,7 +124,6 @@ export async function exportVideo(
     recipe.crop,
     recipe.frame
   );
-  const source = base;
   // Whole-file average bitrate: re-encoding never needs more than the source already spent.
   const sourceBps = info.durationSec > 0 ? (recipe.file.size * 8) / info.durationSec : null;
   const planFor = (src: Size): EncodePlan =>
@@ -137,9 +145,89 @@ export async function exportVideo(
           maxLongSide: null,
           sourceBps,
         });
-  const initialPlan = planFor(source);
+  return {
+    d,
+    info,
+    trim,
+    durationSec,
+    crop,
+    base,
+    fit,
+    sourceBps,
+    planFor,
+    initialPlan: planFor(base),
+    targetBytes: recipe.size.kind === "target" ? recipe.size.bytes : null,
+    onEngineDownload,
+  };
+}
 
-  const targetBytes = recipe.size.kind === "target" ? recipe.size.bytes : null;
+export const SAMPLE_SECONDS = 3;
+
+/** A SAMPLE_SECONDS window around the playhead, kept inside the trim (or whole clip). Times are clip-relative. */
+export function sampleWindow(trim: TrimRange | null, durationSec: number, atSec: number): TrimRange {
+  const range = trim ?? { start: 0, end: durationSec };
+  const length = Math.min(SAMPLE_SECONDS, range.end - range.start);
+  const start = Math.min(Math.max(atSec - length / 2, range.start), range.end - length);
+  return { start, end: start + length };
+}
+
+export interface SamplePreview {
+  blob: Blob;
+  window: TrimRange;
+  /** Estimated size of the full export. */
+  estimatedBytes: number;
+  plan: EncodePlan;
+}
+
+/** Encode a short sample around `atSec` with the real settings (fast engine only); null when it can't run. */
+export async function previewSample(
+  recipe: EditRecipe,
+  atSec: number,
+  options: { signal?: AbortSignal } = {},
+  deps?: ExportDeps
+): Promise<SamplePreview | null> {
+  const signal = options.signal ?? new AbortController().signal;
+  const checkAbort = () => {
+    if (signal.aborted) throw new ExportCanceledError();
+  };
+  checkAbort();
+  const p = await prepare(recipe, deps, () => {}, checkAbort);
+  const engine = p.d.engines.webcodecs;
+  const check = await engine.precheck(p.info, p.initialPlan, recipe.container);
+  if (!check.ok) return null;
+  checkAbort();
+  const window = sampleWindow(p.trim, p.info.durationSec, atSec);
+  const blob = await engine.encode({
+    file: recipe.file,
+    info: p.info,
+    plan: p.initialPlan,
+    trim: window,
+    edits: { rotate: recipe.rotate, flipH: recipe.flipH, flipV: recipe.flipV, crop: p.crop, fit: p.fit },
+    container: recipe.container,
+    signal,
+    onProgress: () => {},
+    onEngineDownload: p.onEngineDownload,
+  });
+  let estimatedBytes = Math.round(((p.initialPlan.videoBps + p.initialPlan.audioBps) * p.durationSec) / 8);
+  if (p.targetBytes !== null) estimatedBytes = Math.min(estimatedBytes, p.targetBytes);
+  return { blob, window, estimatedBytes, plan: p.initialPlan };
+}
+
+export async function exportVideo(
+  recipe: EditRecipe,
+  options: ExportOptions = {},
+  deps?: ExportDeps
+): Promise<ExportResult> {
+  const started = Date.now();
+  const signal = options.signal ?? new AbortController().signal;
+  const status = (s: ExportStatus) => options.onStatus?.(s);
+  const checkAbort = () => {
+    if (signal.aborted) throw new ExportCanceledError();
+  };
+
+  checkAbort();
+  const { d, info, trim, durationSec, crop, base, fit, sourceBps, planFor, initialPlan, targetBytes, onEngineDownload } =
+    await prepare(recipe, deps, status, checkAbort);
 
   const runOn = async (engine: VideoEngine, startPlan: EncodePlan): Promise<EngineRun> => {
     const baseJob: Omit<EncodeJob, "plan"> = {
@@ -198,6 +286,7 @@ export async function exportVideo(
         run = await runOn(d.engines.webcodecs, plan);
       } catch (e) {
         if (e instanceof ExportCanceledError) throw e;
+        // Deliberate: the backup reuses the plan that was running (possibly stepped down) so the user-told size and estimate match.
         run = await runBackup(e instanceof Error ? e.message : String(e), plan);
       }
     } else {
