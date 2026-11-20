@@ -3,6 +3,7 @@ import { probeWithMediabunny, webcodecsEngine } from "@/lib/video/engines/webcod
 import type { EncodeJob } from "@/lib/video/engines/types";
 import { ExportCanceledError } from "@/lib/video/errors";
 import { makeTestClip } from "@/lib/video/test-utils/make-clip";
+import { expectPixels, isBlue, isGreen, isRed, isWhite } from "@/lib/video/test-utils/colors";
 import { inspectMp4, pixelAt } from "@/lib/video/test-utils/mp4";
 
 const NO_EDITS: EncodeJob["edits"] = { rotate: 0, flipH: false, flipV: false, crop: null, fit: null };
@@ -15,20 +16,6 @@ function job(partial: Omit<EncodeJob, "signal" | "onProgress" | "edits" | "conta
     container: "mp4",
     ...partial,
   };
-}
-
-type Rgb = [number, number, number];
-// Colours come back approximate after lossy encoding.
-const isRed = ([r, g, b]: Rgb) => r > 160 && g < 90 && b < 90;
-const isBlue = ([r, g, b]: Rgb) => b > 160 && r < 90 && g < 90;
-const isWhite = (p: Rgb) => p.every((c) => c > 170);
-const isGreen = ([r, g, b]: Rgb) => g > 160 && r < 90 && b < 90;
-
-async function expectPixels(out: Blob, checks: [x: number, y: number, is: (p: Rgb) => boolean][]) {
-  for (const [x, y, is] of checks) {
-    const px = await pixelAt(out, x, y);
-    expect(is(px), `${is.name} at (${x},${y}): ${px}`).toBe(true);
-  }
 }
 
 describe("probeWithMediabunny", () => {

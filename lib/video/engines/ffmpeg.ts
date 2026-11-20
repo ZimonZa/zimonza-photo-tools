@@ -7,12 +7,13 @@ type DownloadListener = (loaded: number, total: number | null) => void;
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 const MOUNT = "/in";
-const OUT = "/out.mp4";
 /** How much of ffmpeg's log to keep for error messages. */
 const LOG_TAIL_LINES = 20;
 
 /** One shared ffmpeg instance; dropped (and rebuilt on next use) after a cancel terminates it. */
 let instance: Promise<FFmpeg> | null = null;
+/** Whether the current instance has already run an encode. */
+let encodedBefore = false;
 
 async function downloadWithProgress(url: string, onProgress?: DownloadListener): Promise<string> {
   const res = await fetch(url);
@@ -39,6 +40,7 @@ function getFFmpeg(onDownload?: DownloadListener): Promise<FFmpeg> {
     const wasmURL = await downloadWithProgress(abs(urls.wasmURL), onDownload);
     const ffmpeg = new FFmpeg();
     await ffmpeg.load({ coreURL: abs(urls.coreURL), wasmURL, classWorkerURL: abs(urls.classWorkerURL) });
+    encodedBefore = false;
     return ffmpeg;
   })().catch((e) => {
     instance = null;
@@ -82,10 +84,19 @@ export async function probeWithFfmpeg(file: File, onEngineDownload?: DownloadLis
 }
 
 async function encode(job: EncodeJob): Promise<Blob> {
-  const { file, info, trim, plan, signal, onProgress } = job;
+  const { file, info, trim, plan, edits, container, signal, onProgress } = job;
+  const OUT = container === "webm" ? "/out.webm" : "/out.mp4";
   if (signal.aborted) throw new ExportCanceledError();
+  // The core's libvpx-vp9 can crash ("memory access out of bounds") in a heap that earlier encodes
+  // used, so a WebM encode always starts from a fresh instance.
+  if (container === "webm" && encodedBefore && instance) {
+    const stale = instance;
+    instance = null;
+    (await stale.catch(() => null))?.terminate();
+  }
   const ffmpeg = await getFFmpeg(job.onEngineDownload);
   if (signal.aborted) throw new ExportCanceledError();
+  encodedBefore = true;
 
   const duration = trim ? trim.end - trim.start : info.durationSec;
   const tail: string[] = [];
@@ -108,7 +119,7 @@ async function encode(job: EncodeJob): Promise<Blob> {
   signal.addEventListener("abort", discardInstance, { once: true });
   try {
     const code = await withInput(ffmpeg, file, (inPath) =>
-      ffmpeg.exec(buildFfmpegArgs({ inPath, outPath: OUT, trim, plan }))
+      ffmpeg.exec(buildFfmpegArgs({ inPath, outPath: OUT, trim, plan, edits, container }))
     );
     if (code !== 0) {
       cleanFailure = true;
@@ -117,7 +128,7 @@ async function encode(job: EncodeJob): Promise<Blob> {
     const data = await ffmpeg.readFile(OUT);
     await ffmpeg.deleteFile(OUT);
     if (typeof data === "string") throw new Error("The backup engine returned text instead of video.");
-    return new Blob([data as BlobPart], { type: "video/mp4" });
+    return new Blob([data as BlobPart], { type: container === "webm" ? "video/webm" : "video/mp4" });
   } catch (e) {
     if (terminated || signal.aborted) throw new ExportCanceledError();
     if (cleanFailure) {

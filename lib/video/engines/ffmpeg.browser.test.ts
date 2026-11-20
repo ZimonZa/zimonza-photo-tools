@@ -3,7 +3,8 @@ import { ffmpegEngine, probeWithFfmpeg } from "@/lib/video/engines/ffmpeg";
 import type { EncodeJob } from "@/lib/video/engines/types";
 import { ExportCanceledError } from "@/lib/video/errors";
 import { makeTestClip } from "@/lib/video/test-utils/make-clip";
-import { inspectMp4 } from "@/lib/video/test-utils/mp4";
+import { expectPixels, isBlue, isGreen, isRed, isWhite } from "@/lib/video/test-utils/colors";
+import { inspectMp4, pixelAt } from "@/lib/video/test-utils/mp4";
 
 const TIMEOUT = 120_000;
 
@@ -140,5 +141,102 @@ describe("ffmpegEngine.encode", () => {
       expect((await inspectMp4(again)).videoCodec).toBe("avc");
     },
     TIMEOUT * 2
+  );
+});
+
+describe("ffmpegEngine applies the edits", () => {
+  const NO_EDITS = { rotate: 0, flipH: false, flipV: false, crop: null, fit: null } as const;
+  const plan = (width: number, height: number) => ({ width, height, videoBps: 1_000_000, audioBps: 0, steppedDown: false });
+  const quadrants = () => makeTestClip({ seconds: 1, width: 640, height: 360, audio: false, pattern: "quadrants" });
+
+  test(
+    "rotate + crop selects the region of the rotated picture",
+    async () => {
+      const file = await quadrants();
+      const out = await ffmpegEngine.encode(
+        job({
+          file,
+          info: await probeWithFfmpeg(file),
+          trim: null,
+          plan: plan(180, 320),
+          edits: { ...NO_EDITS, rotate: 90, crop: { left: 0, top: 0, width: 180, height: 320 } },
+        })
+      );
+      expect(await inspectMp4(out)).toMatchObject({ width: 180, height: 320, rotation: 0 });
+      // Turned clockwise, the original bottom-left (blue) becomes the top-left.
+      const px = await pixelAt(out, 90, 160);
+      expect(isBlue(px), `pixel ${px}`).toBe(true);
+    },
+    TIMEOUT
+  );
+
+  test(
+    "blurred background: whole picture visible, no black bars",
+    async () => {
+      const file = await makeTestClip({ seconds: 1, width: 640, height: 360, audio: false, pattern: "solid-red" });
+      const out = await ffmpegEngine.encode(
+        job({ file, info: await probeWithFfmpeg(file), trim: null, plan: plan(360, 640), edits: { ...NO_EDITS, fit: "blur" } })
+      );
+      expect(await inspectMp4(out)).toMatchObject({ width: 360, height: 640, rotation: 0 });
+      const centre = await pixelAt(out, 180, 320);
+      expect(isRed(centre), `pixel ${centre}`).toBe(true);
+      const corner = await pixelAt(out, 10, 10);
+      expect(corner[0], `pixel ${corner}`).toBeGreaterThan(100); // blurred red, not black
+      expect(corner[0], `pixel ${corner} vs centre ${centre}`).toBeLessThan(centre[0] - 20); // darkened
+    },
+    TIMEOUT
+  );
+
+  test(
+    "crop-to-fill keeps the centre",
+    async () => {
+      const file = await quadrants();
+      const out = await ffmpegEngine.encode(
+        job({
+          file,
+          info: await probeWithFfmpeg(file),
+          trim: null,
+          plan: plan(120, 360),
+          edits: { ...NO_EDITS, crop: { left: 0, top: 0, width: 480, height: 360 }, fit: "cover" },
+        })
+      );
+      await expectPixels(out, [[100, 90, isRed]]);
+    },
+    TIMEOUT
+  );
+
+  test(
+    "vertical flip",
+    async () => {
+      const file = await quadrants();
+      const out = await ffmpegEngine.encode(
+        job({ file, info: await probeWithFfmpeg(file), trim: null, plan: plan(640, 360), edits: { ...NO_EDITS, flipV: true } })
+      );
+      await expectPixels(out, [
+        [80, 45, isBlue],
+        [560, 45, isWhite],
+        [560, 315, isGreen],
+      ]);
+    },
+    TIMEOUT
+  );
+
+  test(
+    "WebM output is VP9 + Opus",
+    async () => {
+      const file = await makeTestClip({ seconds: 1, width: 640, height: 360, audio: true });
+      const out = await ffmpegEngine.encode(
+        job({
+          file,
+          info: await probeWithFfmpeg(file),
+          trim: null,
+          plan: { width: 320, height: 180, videoBps: 400_000, audioBps: 96_000, steppedDown: false },
+          container: "webm",
+        })
+      );
+      expect(out.type).toBe("video/webm");
+      expect(await inspectMp4(out)).toMatchObject({ videoCodec: "vp9", audioCodec: "opus", width: 320, height: 180 });
+    },
+    TIMEOUT
   );
 });
