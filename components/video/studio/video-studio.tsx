@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { VolumeX } from "lucide-react";
 import { useVideoStore } from "@/store/useVideoStore";
 import { planOutput } from "@/lib/video/plan-output";
@@ -82,11 +82,25 @@ function EditorShell() {
   const setTool = useVideoStore((s) => s.setTool);
   const reset = useVideoStore((s) => s.reset);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [headerH, setHeaderH] = useState<number | null>(null);
+
+  // Fill exactly the viewport below the site header, whatever height it has (phone nav wraps to a second row).
+  useEffect(() => {
+    const header = document.querySelector("body header");
+    if (!header) return;
+    const measure = () => setHeaderH(Math.round(header.getBoundingClientRect().height));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(header);
+    return () => ro.disconnect();
+  }, []);
   if (load.kind !== "ready") return null;
   const toolLabel = TOOLS.find((t) => t.id === tool)?.label ?? "";
 
   return (
-    <div className="flex h-[calc(100dvh-4rem)] min-h-[480px] flex-col lg:grid lg:grid-cols-[72px_1fr_340px] lg:grid-rows-[auto_1fr_auto]">
+    <div
+      style={{ height: headerH === null ? "calc(100dvh - 4rem)" : `calc(100dvh - ${headerH}px)` }}
+      className="flex flex-col overflow-hidden lg:grid lg:grid-cols-[72px_1fr_340px] lg:grid-rows-[auto_1fr_auto]">
       <TopBar fileName={load.file.name} onNewVideo={reset} />
 
       <section

@@ -41,7 +41,7 @@ export function ToolRail({
 }) {
   return (
     <nav
-      aria-label="Tools"
+      aria-label="Video tools"
       className="flex h-full gap-1 overflow-x-auto border-t border-border bg-card/60 px-2 py-1.5 lg:flex-col lg:overflow-visible lg:border-r lg:border-t-0 lg:px-1.5 lg:py-3"
     >
       {TOOLS.map((t) => (
