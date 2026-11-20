@@ -387,3 +387,119 @@ describe("export", () => {
     expect(store.getState().exportState.kind).toBe("idle");
   });
 });
+
+describe("superseded work", () => {
+  test("a superseded openFile (probe resolving late) is discarded", async () => {
+    const slow = deferred<VideoInfo>();
+    let n = 0;
+    const { deps } = makeDeps({ probe: vi.fn(() => (n++ === 0 ? slow.promise : Promise.resolve({ ...INFO, durationSec: 7 }))) });
+    const store = createVideoStore(deps);
+    const first = store.getState().openFile(file("a.mp4"));
+    await store.getState().openFile(file("b.mp4"));
+    slow.resolve(INFO);
+    await first;
+    const s = store.getState().load;
+    expect(s.kind === "ready" && s.file.name).toBe("b.mp4");
+    expect(s.kind === "ready" && s.info.durationSec).toBe(7);
+  });
+
+  test("a superseded proxy build is aborted and its blob discarded", async () => {
+    const proxy = deferred<Blob | null>();
+    let signal: AbortSignal | undefined;
+    const makeProxy = vi.fn((_f: File, _i: VideoInfo, s: AbortSignal) => {
+      signal = s;
+      return proxy.promise;
+    });
+    const { deps } = makeDeps({ canPlay: async () => false, makeProxy });
+    const store = createVideoStore(deps);
+    const first = store.getState().openFile(file("a.mp4"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(store.getState().load.kind).toBe("preparing-preview");
+    store.getState().reset();
+    expect(signal?.aborted).toBe(true);
+    proxy.resolve(new Blob(["p"]));
+    await first;
+    expect(store.getState().load.kind).toBe("empty");
+    expect(deps.objectUrl).not.toHaveBeenCalled();
+  });
+
+  test("reset clears the debounce timer and revokes preview, sample and result urls", async () => {
+    const { store, deps, revoked } = await ready();
+    await store.getState().startExport();
+    const done = store.getState().exportState;
+    if (done.kind !== "done") throw new Error("not done");
+    await vi.advanceTimersByTimeAsync(QUALITY_DEBOUNCE_MS);
+    const sampleUrl = store.getState().quality.url;
+    const load = store.getState().load;
+    store.getState().updateRecipe({ muted: true });
+    vi.mocked(deps.previewSample).mockClear();
+    store.getState().reset();
+    await vi.advanceTimersByTimeAsync(QUALITY_DEBOUNCE_MS * 3);
+    expect(deps.previewSample).not.toHaveBeenCalled();
+    expect(revoked).toEqual(expect.arrayContaining([done.url, sampleUrl, load.kind === "ready" ? load.previewUrl : null]));
+    expect(store.getState().load.kind).toBe("empty");
+    expect(store.getState().exportState.kind).toBe("idle");
+  });
+
+  test("reset during an export aborts it and a late result never reaches state", async () => {
+    const run = deferred<ExportResult>();
+    let signal: AbortSignal | undefined;
+    const { store, deps } = await ready({
+      exportVideo: vi.fn((_r, o) => {
+        signal = o.signal;
+        return run.promise;
+      }),
+    });
+    const p = store.getState().startExport();
+    store.getState().reset();
+    expect(signal?.aborted).toBe(true);
+    run.resolve(result());
+    await p;
+    expect(store.getState().exportState.kind).toBe("idle");
+    expect(deps.objectUrl).toHaveBeenCalledTimes(1); // only the preview url; no result url
+  });
+
+  test("opening a file during an open fallback question answers no, and a new export is not clobbered", async () => {
+    let answered: boolean | null = null;
+    const second = deferred<ExportResult>();
+    let calls = 0;
+    const { store } = await ready({
+      exportVideo: (_r, o) => {
+        if (calls++ > 0) return second.promise;
+        return o.confirmFallback!({ reason: "slow", estimatedSec: 5 }).then((ok) => {
+          answered = ok;
+          throw new ExportCanceledError();
+        });
+      },
+    });
+    const p1 = store.getState().startExport();
+    await vi.advanceTimersByTimeAsync(0);
+    await store.getState().openFile(file("b.mp4"));
+    await p1;
+    expect(answered).toBe(false);
+    expect(store.getState().exportState.kind).toBe("idle");
+
+    const p2 = store.getState().startExport();
+    expect(store.getState().exportState.kind).toBe("running");
+    second.resolve(result());
+    await p2;
+    expect(store.getState().exportState.kind).toBe("done");
+  });
+
+  test("a second confirmFallback call resolves the previous question with no", async () => {
+    const answers: boolean[] = [];
+    const { store } = await ready({
+      exportVideo: async (_r, o) => {
+        void o.confirmFallback!({ reason: "one", estimatedSec: 1 }).then((a) => answers.push(a));
+        const ok = await o.confirmFallback!({ reason: "two", estimatedSec: 2 });
+        answers.push(ok);
+        return result();
+      },
+    });
+    const p = store.getState().startExport();
+    await vi.advanceTimersByTimeAsync(0);
+    store.getState().answerFallback(true);
+    await p;
+    expect(answers).toEqual([false, true]);
+  });
+});

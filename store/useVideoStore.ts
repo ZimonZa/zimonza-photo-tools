@@ -107,6 +107,7 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
   let loadRun = 0;
   let proxyAbort: AbortController | null = null;
   let exportAbort: AbortController | null = null;
+  let exportRun = 0;
   let fallbackResolve: ((ok: boolean) => void) | null = null;
 
   const initialQuality = (enabled: boolean, mode: QualityState["mode"] = "compressed"): QualityState => ({
@@ -180,6 +181,12 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
 
     const releaseClip = () => {
       loadRun++;
+      // Cancel a running export: answer an open question "no", abort, and make its late results stale.
+      exportRun++;
+      fallbackResolve?.(false);
+      fallbackResolve = null;
+      exportAbort?.abort();
+      exportAbort = null;
       proxyAbort?.abort();
       proxyAbort = null;
       stopSample();
@@ -314,6 +321,7 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
           quality: { ...s.quality, status: s.quality.status === "working" ? "idle" : s.quality.status },
           exportState: { kind: "running", statusText: "Starting…", progress: 0, startedAt: deps.now(), confirm: null },
         }));
+        const run = ++exportRun;
         const controller = new AbortController();
         exportAbort = controller;
         const patchRunning = (patch: Partial<Extract<ExportState, { kind: "running" }>>) =>
@@ -323,17 +331,21 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
         try {
           const result = await deps.exportVideo(recipe, {
             signal: controller.signal,
-            onProgress: (progress) => patchRunning({ progress }),
-            onStatus: (status) => patchRunning({ statusText: describeStatus(status) }),
+            onProgress: (progress) => run === exportRun && patchRunning({ progress }),
+            onStatus: (status) => run === exportRun && patchRunning({ statusText: describeStatus(status) }),
             confirmFallback: (confirm) =>
               new Promise<boolean>((resolve) => {
+                if (run !== exportRun) return resolve(false);
+                fallbackResolve?.(false);
                 fallbackResolve = resolve;
                 patchRunning({ confirm });
               }),
           });
+          if (run !== exportRun) return; // superseded by a new clip or export
           if (controller.signal.aborted) set({ exportState: { kind: "idle" } });
           else set({ exportState: { kind: "done", result, url: deps.objectUrl(result.blob) } });
         } catch (e) {
+          if (run !== exportRun) return;
           const described = describeExportError(e, targetBytes);
           set({
             exportState: described
@@ -341,8 +353,11 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
               : { kind: "idle" },
           });
         } finally {
-          exportAbort = null;
-          fallbackResolve = null;
+          if (run === exportRun) {
+            fallbackResolve?.(false);
+            fallbackResolve = null;
+            exportAbort = null;
+          }
         }
         scheduleSample();
       },
