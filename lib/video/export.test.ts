@@ -3,7 +3,7 @@ import { maxVideoBps, nextVideoBps } from "@/lib/video/bitrate";
 import type { EncodeJob, SupportCheck, VideoEngine, VideoInfo } from "@/lib/video/engines/types";
 import { ExportCanceledError, TargetNotReachedError, TargetTooSmallError } from "@/lib/video/errors";
 import { createProbe, exportVideo, type ExportDeps, type ExportStatus } from "@/lib/video/export";
-import { MB, type EditRecipe } from "@/lib/video/recipe";
+import { BASE_RECIPE, MB, type EditRecipe } from "@/lib/video/recipe";
 
 const INFO: VideoInfo = {
   durationSec: 60,
@@ -51,14 +51,7 @@ function sizedFile(name: string, size: number): File {
 }
 
 function recipe(partial: Partial<EditRecipe> = {}): EditRecipe {
-  return {
-    file: sizedFile("Trip.MOV", 150_000_000),
-    trim: null,
-    maxLongSide: null,
-    muted: false,
-    size: { kind: "quality", level: "balanced" },
-    ...partial,
-  };
+  return { ...BASE_RECIPE, file: sizedFile("Trip.MOV", 150_000_000), ...partial };
 }
 
 const TARGET_20 = { kind: "target", bytes: 20 * MB } as const;
@@ -232,7 +225,27 @@ describe("diagnostics", () => {
 describe("result", () => {
   test("names the file and reports the final size", async () => {
     const wc = fakeEngine("webcodecs");
-    const result = await exportVideo(recipe({ maxLongSide: 1280 }), {}, deps(wc, fakeEngine("ffmpeg")));
+    const result = await exportVideo(recipe({ frame: { kind: "source", maxLongSide: 1280 } }), {}, deps(wc, fakeEngine("ffmpeg")));
     expect(result).toMatchObject({ fileName: "Trip-zimonza.mp4", width: 1280, height: 720, attempts: 1, steppedDown: false });
+  });
+
+  test("edits, fit and container reach the engine", async () => {
+    const wc = fakeEngine("webcodecs");
+    const result = await exportVideo(
+      recipe({
+        rotate: 90,
+        flipV: true,
+        crop: { left: 1, top: 0, width: 1081, height: 1920 },
+        frame: { kind: "exact", width: 1080, height: 1350, fit: "blur" },
+        container: "webm",
+      }),
+      {},
+      deps(wc, fakeEngine("ffmpeg"))
+    );
+    // probe is 1920x1080 -> rotated picture 1080x1920 -> crop clamps to 1080x1920 at (0,0) = whole picture -> no crop
+    expect(wc.jobs[0].edits).toEqual({ rotate: 90, flipH: false, flipV: true, crop: null, fit: "blur" });
+    expect(wc.jobs[0].container).toBe("webm");
+    expect(wc.jobs[0].plan).toMatchObject({ width: 1080, height: 1350 });
+    expect(result.fileName).toBe("Trip-zimonza.webm");
   });
 });

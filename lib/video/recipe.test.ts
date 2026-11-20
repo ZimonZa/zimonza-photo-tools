@@ -42,6 +42,10 @@ describe("outputFileName", () => {
     expect(outputFileName("noext", "mp4")).toBe("noext-zimonza.mp4");
   });
 
+  test("uses the container as the extension", () => {
+    expect(outputFileName("Trip.MOV", "webm")).toBe("Trip-zimonza.webm");
+  });
+
   test("falls back to 'video' for an empty name", () => {
     expect(outputFileName("", "mp4")).toBe("video-zimonza.mp4");
   });

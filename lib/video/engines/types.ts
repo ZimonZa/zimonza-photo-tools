@@ -1,6 +1,7 @@
 import type { EncodePlan } from "@/lib/video/bitrate";
+import type { FrameEdits } from "@/lib/video/frame";
 import type { Rotation } from "@/lib/video/geometry";
-import type { TrimRange } from "@/lib/video/recipe";
+import type { Container, TrimRange } from "@/lib/video/recipe";
 
 export type EngineId = "webcodecs" | "ffmpeg";
 
@@ -29,6 +30,8 @@ export interface EncodeJob {
   info: VideoInfo;
   trim: TrimRange | null;
   plan: EncodePlan;
+  edits: FrameEdits;
+  container: Container;
   signal: AbortSignal;
   onProgress(p: number): void;
   /** Reports the one-time download of an engine's binary, when it has one. */

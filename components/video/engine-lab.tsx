@@ -6,7 +6,7 @@ import { formatBytes } from "@/lib/utils";
 import { ExportCanceledError, InvalidTrimError, TargetTooSmallError } from "@/lib/video/errors";
 import type { VideoInfo } from "@/lib/video/engines/types";
 import type { ExportResult, ExportStatus } from "@/lib/video/export";
-import { MB, type EditRecipe, type QualityLevel } from "@/lib/video/recipe";
+import { BASE_RECIPE, MB, type EditRecipe, type QualityLevel } from "@/lib/video/recipe";
 
 type EngineChoice = "auto" | "webcodecs" | "ffmpeg";
 type MaxLong = "original" | "1920" | "1280" | "854";
@@ -106,9 +106,10 @@ export function EngineLab() {
     const start = parseSeconds(trimStart);
     const end = parseSeconds(trimEnd);
     const recipe: EditRecipe = {
+      ...BASE_RECIPE,
       file,
       trim: start !== null || end !== null ? { start: start ?? 0, end: end ?? Number.MAX_SAFE_INTEGER } : null,
-      maxLongSide: maxLong === "original" ? null : Number(maxLong),
+      frame: { kind: "source", maxLongSide: maxLong === "original" ? null : Number(maxLong) },
       muted,
       size: sizeKind === "target" ? { kind: "target", bytes: (targetMb ?? 20) * MB } : { kind: "quality", level },
     };

@@ -5,8 +5,14 @@ import { ExportCanceledError } from "@/lib/video/errors";
 import { makeTestClip } from "@/lib/video/test-utils/make-clip";
 import { inspectMp4 } from "@/lib/video/test-utils/mp4";
 
-function job(partial: Omit<EncodeJob, "signal" | "onProgress"> & Partial<EncodeJob>): EncodeJob {
-  return { signal: new AbortController().signal, onProgress: () => {}, ...partial };
+function job(partial: Omit<EncodeJob, "signal" | "onProgress" | "edits" | "container"> & Partial<EncodeJob>): EncodeJob {
+  return {
+    signal: new AbortController().signal,
+    onProgress: () => {},
+    edits: { rotate: 0, flipH: false, flipV: false, crop: null, fit: null },
+    container: "mp4",
+    ...partial,
+  };
 }
 
 describe("probeWithMediabunny", () => {

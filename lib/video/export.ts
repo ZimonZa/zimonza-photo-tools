@@ -7,6 +7,7 @@ import {
   videoCeilingBps,
   type EncodePlan,
 } from "@/lib/video/bitrate";
+import { resolveFrame } from "@/lib/video/frame";
 import type { EngineId, EncodeJob, VideoEngine, VideoInfo } from "@/lib/video/engines/types";
 import { ExportCanceledError, TargetNotReachedError } from "@/lib/video/errors";
 import { normalizeTrim, outputFileName, type EditRecipe } from "@/lib/video/recipe";
@@ -99,7 +100,13 @@ export async function exportVideo(
 
   const trim = normalizeTrim(recipe.trim, info.durationSec);
   const durationSec = trim ? trim.end - trim.start : info.durationSec;
-  const source = { width: info.width, height: info.height };
+  const { crop, base, fit } = resolveFrame(
+    { width: info.width, height: info.height },
+    recipe.rotate,
+    recipe.crop,
+    recipe.frame
+  );
+  const source = base;
   // Whole-file average bitrate: re-encoding never needs more than the source already spent.
   const sourceBps = info.durationSec > 0 ? (recipe.file.size * 8) / info.durationSec : null;
   const initialPlan =
@@ -110,7 +117,7 @@ export async function exportVideo(
           targetBytes: recipe.size.bytes,
           hasAudio: info.hasAudio,
           muted: recipe.muted,
-          maxLongSide: recipe.maxLongSide,
+          maxLongSide: null,
           sourceBps,
         })
       : planQuality({
@@ -118,7 +125,7 @@ export async function exportVideo(
           level: recipe.size.level,
           hasAudio: info.hasAudio,
           muted: recipe.muted,
-          maxLongSide: recipe.maxLongSide,
+          maxLongSide: null,
           sourceBps,
         });
 
@@ -129,6 +136,8 @@ export async function exportVideo(
       file: recipe.file,
       info,
       trim,
+      edits: { rotate: recipe.rotate, flipH: recipe.flipH, flipV: recipe.flipV, crop, fit },
+      container: recipe.container,
       signal,
       onProgress: (p) => options.onProgress?.(p),
       onEngineDownload,
@@ -167,7 +176,7 @@ export async function exportVideo(
 
   return {
     blob: run.blob,
-    fileName: outputFileName(recipe.file.name, "mp4"),
+    fileName: outputFileName(recipe.file.name, recipe.container),
     engine: engineId,
     width: run.plan.width,
     height: run.plan.height,
