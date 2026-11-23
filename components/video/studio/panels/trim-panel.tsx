@@ -48,7 +48,7 @@ export function TrimPanel() {
   const duration = load.info.durationSec;
   const range = trim ?? { start: 0, end: duration };
   const move = (handle: "start" | "end", t: number) =>
-    updateRecipe({ trim: trimOrNull(dragTrim(range, handle, t, duration), duration) });
+    updateRecipe({ trim: trimOrNull(dragTrim(range, handle, t, duration), duration, handle) });
 
   return (
     <div className="space-y-3">

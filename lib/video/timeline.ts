@@ -21,11 +21,29 @@ export function dragTrim(trim: TrimRange, handle: "start" | "end", t: number, du
   return { start: trim.start, end: clamp(t, Math.min(durationSec, trim.start + MIN_TRIM), durationSec) };
 }
 
-/** A trim range as the store keeps it: rounded to 0.01 s, and `null` when it covers the whole clip. */
-export function trimOrNull(trim: TrimRange, durationSec: number): TrimRange | null {
-  const round = (n: number) => Math.min(durationSec, Math.max(0, Math.round(n * 100) / 100));
-  const start = round(trim.start);
-  const end = round(trim.end);
+/**
+ * A trim range as the store keeps it: on a 0.01 s grid (integer centiseconds divided by 100), at least
+ * 10 centiseconds long, and `null` when it covers the whole clip. When the gap is too small, the handle
+ * that was not just moved (`moved`) stays put and the moved one is pushed back. An end at the clip end is
+ * stored as exactly `durationSec`.
+ */
+export function trimOrNull(trim: TrimRange, durationSec: number, moved: "start" | "end" = "end"): TrimRange | null {
+  const minCs = Math.round(MIN_TRIM * 100);
+  const durationCs = durationSec * 100;
+  let s = Math.max(0, Math.round(trim.start * 100));
+  let e = Math.round(trim.end * 100);
+  const atEnd = e >= durationCs - 0.5;
+  if (atEnd) e = durationCs;
+  if (e - s < minCs) {
+    if (moved === "start") s = Math.max(0, Math.floor(e - minCs + 1e-9));
+    else e = Math.min(durationCs, s + minCs);
+  }
+  if (e >= durationCs - 0.5) {
+    e = durationCs;
+    s = Math.min(s, Math.max(0, Math.floor(durationCs - minCs + 1e-9)));
+  }
+  const start = s / 100;
+  const end = e >= durationCs ? durationSec : e / 100;
   return start <= 0 && end >= durationSec ? null : { start, end };
 }
 

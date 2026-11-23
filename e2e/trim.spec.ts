@@ -100,3 +100,15 @@ test("clicking the timeline seeks the video, also to the time it already shows",
   expect(mid).toBeGreaterThan(1);
   await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime)).toBeCloseTo(mid, 1);
 });
+
+test("desktop: at the minimum trim both handles stay grabbable; the start handle can widen it", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "mouse drag at desktop width");
+  await dragHandle(page, endHandle(page), 0.5);
+  await dragHandle(page, startHandle(page), 1);
+  const start = await num(startHandle(page));
+  const end = await num(endHandle(page));
+  expect(end - start).toBeCloseTo(0.1, 2);
+  await dragHandle(page, startHandle(page), 0.1);
+  expect(await num(startHandle(page))).toBeLessThan(start - 0.5);
+  expect(await num(endHandle(page))).toBeCloseTo(end, 2);
+});

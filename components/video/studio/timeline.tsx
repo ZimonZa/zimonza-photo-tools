@@ -5,6 +5,7 @@ import type { VideoInfo } from "@/lib/video/engines/types";
 import { makeFilmstrip } from "@/lib/video/filmstrip";
 import type { TrimRange } from "@/lib/video/recipe";
 import { dragTrim, formatTime, timeToX, trimOrNull, xToTime } from "@/lib/video/timeline";
+import { cn } from "@/lib/utils";
 import { useVideoStore } from "@/store/useVideoStore";
 
 const PHONE_THUMBS = 6;
@@ -56,7 +57,7 @@ interface HandleProps {
   trim: TrimRange;
   durationSec: number;
   trackRef: RefObject<HTMLDivElement>;
-  onChange(next: TrimRange): void;
+  onChange(next: TrimRange, moved: "start" | "end"): void;
 }
 
 /** One trim handle: dragged with a mouse, finger or pen (pointer capture), moved with the arrow keys. */
@@ -77,7 +78,7 @@ function TrimHandle({ which, trim, durationSec, trackRef, onChange }: HandleProp
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
     const rect = trackRef.current?.getBoundingClientRect();
     if (!rect || grab.current === null) return;
-    onChange(dragTrim(trim, which, xToTime(e.clientX - grab.current - rect.left, durationSec, rect.width), durationSec));
+    onChange(dragTrim(trim, which, xToTime(e.clientX - grab.current - rect.left, durationSec, rect.width), durationSec), which);
   };
   const release = (e: PointerEvent<HTMLDivElement>) => {
     grab.current = null;
@@ -86,7 +87,7 @@ function TrimHandle({ which, trim, durationSec, trackRef, onChange }: HandleProp
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (!isArrow(e)) return;
     e.preventDefault();
-    onChange(dragTrim(trim, which, value + stepFor(e), durationSec));
+    onChange(dragTrim(trim, which, value + stepFor(e), durationSec), which);
   };
 
   return (
@@ -105,13 +106,17 @@ function TrimHandle({ which, trim, durationSec, trackRef, onChange }: HandleProp
       onPointerCancel={release}
       onKeyDown={onKeyDown}
       style={{ left: `${timeToX(value, durationSec, 100)}%` }}
-      className="group absolute inset-y-0 z-20 flex w-7 -translate-x-1/2 cursor-ew-resize touch-none items-center justify-center outline-none"
+      className={cn(
+        // Hit areas reach outward from the value (start leftwards, end rightwards), so they never overlap.
+        "group absolute inset-y-0 z-20 flex w-7 cursor-ew-resize touch-none items-center outline-none",
+        which === "start" ? "-translate-x-full justify-end" : "justify-start"
+      )}
     >
       <span
         aria-hidden
         className="h-full w-2.5 rounded-sm bg-accent shadow-card group-focus-visible:ring-2 group-focus-visible:ring-ring"
       />
-      <span aria-hidden className="absolute h-5 w-px bg-accent-foreground/70" />
+      <span aria-hidden className={cn("absolute h-5 w-px bg-accent-foreground/70", which === "start" ? "right-1" : "left-1")} />
     </div>
   );
 }
@@ -156,7 +161,7 @@ export function Timeline({ file, info }: { file: File; info: VideoInfo }) {
   const startPct = timeToX(range.start, duration, 100);
   const endPct = timeToX(range.end, duration, 100);
 
-  const setTrim = (next: TrimRange) => updateRecipe({ trim: trimOrNull(next, duration) });
+  const setTrim = (next: TrimRange, moved: "start" | "end") => updateRecipe({ trim: trimOrNull(next, duration, moved) });
   const seekToX = (clientX: number) => {
     const rect = trackRef.current?.getBoundingClientRect();
     if (rect) seek(xToTime(clientX - rect.left, duration, rect.width));

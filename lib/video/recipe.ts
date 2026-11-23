@@ -59,7 +59,7 @@ export function normalizeTrim(trim: TrimRange | null, durationSec: number): Trim
   if (!trim) return null;
   const start = Math.max(0, trim.start);
   const end = Math.min(durationSec, trim.end);
-  if (end - start < MIN_TRIM_SECONDS) throw new InvalidTrimError();
+  if (end - start < MIN_TRIM_SECONDS - 1e-9) throw new InvalidTrimError();
   if (start === 0 && end === durationSec) return null;
   return { start, end };
 }
