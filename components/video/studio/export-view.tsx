@@ -278,15 +278,16 @@ export function ExportView({ onClose }: { onClose: () => void }) {
   }, [kind, closeResult, onClose]);
   const onKeyDown = useDialogKeys(panel, leave);
 
+  // Declared first: it must note where focus was (the Export button) before any effect moves it in.
+  useEffect(() => {
+    const before = document.activeElement as HTMLElement | null;
+    return () => before?.focus?.();
+  }, []);
   // Each step swaps the buttons under the cursor; keep focus in the dialog.
   useEffect(() => {
     const el = panel.current;
     if (el && (!el.contains(document.activeElement) || document.activeElement === document.body)) el.focus();
   }, [kind]);
-  useEffect(() => {
-    const before = document.activeElement as HTMLElement | null;
-    return () => before?.focus?.();
-  }, []);
 
   if (load.kind !== "ready") return null;
   const title =

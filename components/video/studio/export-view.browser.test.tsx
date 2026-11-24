@@ -1,4 +1,4 @@
-import { act, createElement, type ReactElement } from "react";
+import { act, createElement, useState, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { useVideoStore, type ExportState } from "@/store/useVideoStore";
@@ -304,6 +304,71 @@ describe("ExportView", () => {
       expect(answerFallback).toHaveBeenCalledWith(false);
       expect(onClose).not.toHaveBeenCalled();
       expect(e.defaultPrevented).toBe(true);
+    });
+  });
+
+  describe("focus returns to the Export button on close", () => {
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return createElement(
+        "div",
+        null,
+        createElement("button", { id: "export-trigger", onClick: () => setOpen(true) }, "Export"),
+        open ? createElement(ExportView, { onClose: () => setOpen(false) }) : null
+      );
+    }
+    const doneState = (): ExportState => ({
+      kind: "done",
+      url: "blob:x",
+      result: {
+        blob: new Blob([new Uint8Array(10)]),
+        fileName: "a.mp4",
+        engine: "webcodecs",
+        width: 2,
+        height: 2,
+        attempts: 1,
+        steppedDown: false,
+        elapsedMs: 1,
+        info: INFO,
+      },
+    });
+    const trigger = () => document.getElementById("export-trigger") as HTMLButtonElement;
+    const escape = () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+
+    async function open(state: ExportState) {
+      showExport(state, { closeResult: vi.fn() });
+      await render(createElement(Harness));
+      trigger().focus();
+      await act(async () => trigger().click());
+      expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    }
+    const closed = () => {
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(document.activeElement).toBe(trigger());
+    };
+
+    test("from settings: Close button and Escape", async () => {
+      await open({ kind: "idle" });
+      await act(async () => button("Close").click());
+      closed();
+      await act(async () => trigger().click());
+      await act(async () => void escape());
+      closed();
+    });
+
+    test("from the result: Edit again and Escape", async () => {
+      await open(doneState());
+      await act(async () => button("Edit again").click());
+      closed();
+      await act(async () => trigger().click());
+      await act(async () => void escape());
+      closed();
+    });
+
+    test("from the error: Back to editor", async () => {
+      await open({ kind: "error", message: "No." });
+      await act(async () => button("Back to editor").click());
+      closed();
     });
   });
 });
