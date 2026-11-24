@@ -5,6 +5,7 @@ import { Download, Loader2, VolumeX, X } from "lucide-react";
 import { Button, FieldGroup, Segmented } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { MAX_TARGET_MB, MIN_TARGET_MB, mbText, parseMb } from "@/lib/video/target-mb";
+import { exportProgress } from "@/lib/video/messages";
 import { MB, type Container, type QualityLevel } from "@/lib/video/recipe";
 import { useVideoStore } from "@/store/useVideoStore";
 import { FallbackDialog } from "./fallback-dialog";
@@ -151,9 +152,15 @@ function SettingsStep({ onClose }: { onClose: () => void }) {
   );
 }
 
+/**
+ * Progress while exporting. The bar shows the current pass and never reaches 100% before the file
+ * is ready; a target size names its pass ("Pass 2 of up to 4 — adjusting size") as each one starts
+ * the bar again.
+ */
 function RunningStep({ onClose }: { onClose: () => void }) {
   const state = useVideoStore((s) => s.exportState);
   const muted = useVideoStore((s) => s.recipe.muted);
+  const targetSize = useVideoStore((s) => s.recipe.size.kind === "target");
   const cancelExport = useVideoStore((s) => s.cancelExport);
   const answerFallback = useVideoStore((s) => s.answerFallback);
   const [tick, setTick] = useState(() => Date.now());
@@ -162,7 +169,7 @@ function RunningStep({ onClose }: { onClose: () => void }) {
     return () => clearInterval(id);
   }, []);
   if (state.kind !== "running") return null;
-  const percent = Math.round(Math.min(1, Math.max(0, state.progress)) * 100);
+  const { percent, pass } = exportProgress(state.progress, state.attempt, targetSize);
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 text-sm">
@@ -175,13 +182,14 @@ function RunningStep({ onClose }: { onClose: () => void }) {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={percent}
+        aria-valuetext={pass ? `${pass}, ${percent}%` : undefined}
         className="h-2.5 overflow-hidden rounded-full bg-muted"
       >
         <div className="h-full rounded-full bg-gradient-to-r from-accent to-accent2 transition-all" style={{ width: percent + "%" }} />
       </div>
-      <div className="flex items-center justify-between text-xs tabular-nums text-muted-foreground">
-        <span>{percent}%</span>
-        <span>Elapsed {clock(tick - state.startedAt)}</span>
+      <div className="flex items-start justify-between gap-3 text-xs tabular-nums text-muted-foreground">
+        <span>{pass ? `${pass} · ${percent}%` : `${percent}%`}</span>
+        <span className="shrink-0">Elapsed {clock(tick - state.startedAt)}</span>
       </div>
       {muted && <NoSoundBadge />}
       <Button
@@ -302,12 +310,21 @@ export function ExportView({ onClose }: { onClose: () => void }) {
         aria-label="Export"
         tabIndex={-1}
         onKeyDown={onKeyDown}
-        className="relative flex h-full w-full flex-col overflow-y-auto bg-card p-5 outline-none lg:h-auto lg:max-h-full lg:max-w-md lg:rounded-2xl lg:border lg:border-border-strong lg:shadow-glow-lg"
+        className={cn(
+          // Phones: the whole screen, kept clear of a notch and the home indicator.
+          "relative flex h-full w-full flex-col overflow-y-auto bg-card pb-[max(1.25rem,env(safe-area-inset-bottom))] pl-[max(1.25rem,env(safe-area-inset-left))] pr-[max(1.25rem,env(safe-area-inset-right))] pt-[max(1.25rem,env(safe-area-inset-top))] outline-none",
+          "lg:h-auto lg:max-h-full lg:max-w-md lg:rounded-2xl lg:border lg:border-border-strong lg:p-5 lg:shadow-glow-lg"
+        )}
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="font-display text-lg font-semibold">{title}</h2>
           {kind === "idle" && (
-            <button type="button" aria-label="Close" onClick={onClose} className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted">
+            <button
+              type="button"
+              aria-label="Close"
+              onClick={onClose}
+              className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted max-lg:-mr-2 max-lg:inline-flex max-lg:min-w-11 max-lg:items-center max-lg:justify-center"
+            >
               <X className="h-5 w-5" />
             </button>
           )}

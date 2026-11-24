@@ -108,15 +108,19 @@ function TrimHandle({ which, trim, durationSec, trackRef, onChange }: HandleProp
       style={{ left: `${timeToX(value, durationSec, 100)}%` }}
       className={cn(
         // Hit areas reach outward from the value (start leftwards, end rightwards), so they never overlap.
-        "group absolute inset-y-0 z-20 flex w-7 cursor-ew-resize touch-none items-center outline-none",
+        // Phones: 44 px wide for a finger (the strip is inset by as much, so they stay on screen).
+        "group absolute inset-y-0 z-20 flex w-11 cursor-ew-resize touch-none items-center outline-none lg:w-7",
         which === "start" ? "-translate-x-full justify-end" : "justify-start"
       )}
     >
       <span
         aria-hidden
-        className="h-full w-2.5 rounded-sm bg-accent shadow-card group-focus-visible:ring-2 group-focus-visible:ring-ring"
+        className="h-[calc(100%_+_8px)] w-3.5 rounded-md bg-accent shadow-card group-focus-visible:ring-2 group-focus-visible:ring-ring lg:h-full lg:w-2.5 lg:rounded-sm"
       />
-      <span aria-hidden className={cn("absolute h-5 w-px bg-accent-foreground/70", which === "start" ? "right-1" : "left-1")} />
+      <span
+        aria-hidden
+        className={cn("absolute h-5 w-px bg-accent-foreground/70", which === "start" ? "right-1.5 lg:right-1" : "left-1.5 lg:left-1")}
+      />
     </div>
   );
 }
@@ -169,12 +173,12 @@ export function Timeline({ file, info }: { file: File; info: VideoInfo }) {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-1">
-      <div className="flex items-center justify-between px-4 text-xs tabular-nums text-muted-foreground">
+      <div className="flex items-center justify-between px-8 text-xs tabular-nums text-muted-foreground lg:px-4">
         <span>{formatTime(range.start)}</span>
         <span>{formatTime(range.end - range.start)} selected</span>
         <span>{formatTime(range.end)}</span>
       </div>
-      <div className="px-4">
+      <div className="px-8 lg:px-4">
         <div
           ref={trackRef}
           data-testid="timeline-track"

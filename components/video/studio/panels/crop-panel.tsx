@@ -100,7 +100,7 @@ function FreeSize({ picture, current, onSet }: { picture: Size; current: Size; o
 }
 
 /**
- * Ratio chips (Free, 1:1, 4:5, 9:16, 16:9, 4:3), Free's width × height, zoom and Reset crop. The
+ * Ratio chips (Free, 1:1, 4:5, 9:16, 16:9, 4:3), zoom, Free's width × height and Reset crop. The
  * crop box itself is in the centre (`CropEditor`). Without a playable preview there is no box, so
  * a ratio or a Free size crops the middle.
  */
@@ -158,8 +158,7 @@ export function CropPanel() {
         </div>
       </FieldGroup>
 
-      {chip === "free" && <FreeSize picture={picture} current={current} onSet={setFree} />}
-
+      {/* Zoom works with every ratio, so it comes before Free's typed size (and stays near the top of a phone's sheet). */}
       {hasBox && (
         <Slider
           label="Zoom"
@@ -171,6 +170,8 @@ export function CropPanel() {
           onChange={(z) => useCropView.getState().setZoom(z, true)}
         />
       )}
+
+      {chip === "free" && <FreeSize picture={picture} current={current} onSet={setFree} />}
 
       <p className="text-xs text-muted-foreground">
         {crop ? `Keeps ${crop.width} × ${crop.height} px of the picture.` : "No crop — the whole picture is kept."}

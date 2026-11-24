@@ -5,11 +5,12 @@ import { useCallback, type KeyboardEvent, type RefObject } from "react";
 const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
- * Keyboard handling for a modal dialog: Tab and Shift+Tab stay inside `ref`, and Escape calls
- * `onEscape` when given. Handled keys stop here, so a dialog inside another dialog owns its keys.
- * Put the result on the dialog's `onKeyDown`.
+ * Keyboard handling for a dialog: Escape calls `onEscape` when given, and for a modal dialog (the
+ * default) Tab and Shift+Tab stay inside `ref`. Handled keys stop here, so a dialog inside another
+ * dialog owns its keys. Put the result on the dialog's `onKeyDown`. A non-modal dialog
+ * (`{ modal: false }`) lets Tab leave.
  */
-export function useDialogKeys(ref: RefObject<HTMLElement>, onEscape?: () => void) {
+export function useDialogKeys(ref: RefObject<HTMLElement>, onEscape?: () => void, { modal = true }: { modal?: boolean } = {}) {
   return useCallback(
     (e: KeyboardEvent<HTMLElement>) => {
       const root = ref.current;
@@ -21,7 +22,7 @@ export function useDialogKeys(ref: RefObject<HTMLElement>, onEscape?: () => void
         onEscape();
         return;
       }
-      if (e.key !== "Tab") return;
+      if (e.key !== "Tab" || !modal) return;
       e.stopPropagation();
       const items = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE));
       if (items.length === 0) {
@@ -42,6 +43,6 @@ export function useDialogKeys(ref: RefObject<HTMLElement>, onEscape?: () => void
         first.focus();
       }
     },
-    [ref, onEscape]
+    [ref, onEscape, modal]
   );
 }

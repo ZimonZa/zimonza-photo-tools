@@ -347,6 +347,36 @@ describe("export", () => {
     }
   });
 
+  test("each encoding pass is recorded and starts its progress from 0", async () => {
+    const run = deferred<ExportResult>();
+    let opts!: ExportOptions;
+    const { store } = await ready({
+      exportVideo: (_r, o) => {
+        opts = o;
+        return run.promise;
+      },
+    });
+    const p = store.getState().startExport();
+    const running = () => {
+      const s = store.getState().exportState;
+      if (s.kind !== "running") throw new Error("not running");
+      return s;
+    };
+    expect(running().attempt).toBe(0);
+    opts.onStatus?.({ phase: "encoding", engine: "webcodecs", attempt: 1 });
+    opts.onProgress?.(1);
+    expect(running()).toMatchObject({ attempt: 1, progress: 1 });
+    // The first pass came out too big: a second pass starts over.
+    opts.onStatus?.({ phase: "encoding", engine: "webcodecs", attempt: 2 });
+    expect(running()).toMatchObject({ attempt: 2, progress: 0 });
+    opts.onProgress?.(0.25);
+    // Other statuses keep the pass and its progress.
+    opts.onStatus?.({ phase: "smaller", width: 640, height: 360, reason: "x" });
+    expect(running()).toMatchObject({ attempt: 2, progress: 0.25 });
+    run.resolve(result());
+    await p;
+  });
+
   test("confirmFallback opens the question; answerFallback(true) continues, (false) cancels back to idle", async () => {
     for (const answer of [true, false]) {
       const { store } = await ready({

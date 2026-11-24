@@ -30,6 +30,7 @@ test("the preview canvas shows the clip and changes while playing", async ({ pag
   await openClip(page);
   // The preview starts on the live Original view.
   const canvas = previewCanvas(page);
+  await expect(page.getByRole("img", { name: "Video preview" })).toBeVisible();
   const box = (await canvas.boundingBox())!;
   expect(box.width).toBeGreaterThan(0);
   expect(box.height).toBeGreaterThan(0);
@@ -91,8 +92,7 @@ test("phone: the Preview quality switch sits in the preview controls; on shows O
   await expect(quality).toBeVisible();
   // The only visible one: the top bar's copy is desktop-only.
   await expect(page.getByRole("switch", { name: "Preview quality" })).toHaveCount(1);
-  // This emulated phone doesn't report itself as mobile, so the store may start it on (real phones start off).
-  if ((await quality.getAttribute("aria-checked")) === "true") await quality.tap();
+  // Phones start with it off.
   await expect(quality).toHaveAttribute("aria-checked", "false");
   await expect(page.getByRole("button", { name: "Compressed" })).toHaveCount(0);
   await quality.tap();

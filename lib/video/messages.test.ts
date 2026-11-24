@@ -6,8 +6,29 @@ import {
   TargetNotReachedError,
   TargetTooSmallError,
 } from "@/lib/video/errors";
-import { describeExportError, describeStatus } from "@/lib/video/messages";
+import { MAX_TARGET_ATTEMPTS } from "@/lib/video/bitrate";
+import { describeExportError, describeStatus, exportProgress } from "@/lib/video/messages";
 import { MB } from "@/lib/video/recipe";
+
+describe("exportProgress", () => {
+  test("never reaches 100% while the export runs", () => {
+    expect(exportProgress(1, 1, false).percent).toBe(99);
+    expect(exportProgress(0.999, 1, false).percent).toBe(99);
+    expect(exportProgress(0.4, 1, false).percent).toBe(40);
+    expect(exportProgress(-1, 1, false).percent).toBe(0);
+    expect(exportProgress(Number.NaN, 1, false).percent).toBe(0);
+  });
+  test("a target size names the pass; later passes say why", () => {
+    expect(MAX_TARGET_ATTEMPTS).toBe(4);
+    expect(exportProgress(0.5, 1, true).pass).toBe("Pass 1 of up to 4");
+    expect(exportProgress(0.5, 2, true).pass).toBe("Pass 2 of up to 4 — adjusting size");
+    expect(exportProgress(0.5, 4, true).pass).toBe("Pass 4 of up to 4 — adjusting size");
+  });
+  test("no pass line for one-pass exports or before encoding starts", () => {
+    expect(exportProgress(0.5, 1, false).pass).toBeNull();
+    expect(exportProgress(0, 0, true).pass).toBeNull();
+  });
+});
 
 describe("describeExportError", () => {
   test("target too small gives a size hint", () => {

@@ -11,11 +11,15 @@ async function estimateMb(page: Page): Promise<number> {
   return Number(/≈ ([\d.]+) MB/.exec(text)![1]);
 }
 
-/** Press on a handle and drag it to `fraction` of the track width (0 = left end, 1 = right end). */
+/**
+ * Press on a handle's bar and drag it to `fraction` of the track width (0 = left end, 1 = right end).
+ * The bar is the hit area's inner edge (start: right edge, end: left edge).
+ */
 async function dragHandle(page: Page, handle: Locator, fraction: number) {
   const t = (await track(page).boundingBox())!;
   const h = (await handle.boundingBox())!;
-  await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
+  const isStart = (await handle.getAttribute("aria-label")) === "Trim start";
+  await page.mouse.move(isStart ? h.x + h.width - 4 : h.x + 4, h.y + h.height / 2);
   await page.mouse.down();
   await page.mouse.move(t.x + t.width * fraction, h.y + h.height / 2, { steps: 12 });
   await page.mouse.up();

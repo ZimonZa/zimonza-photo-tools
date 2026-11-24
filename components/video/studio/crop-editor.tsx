@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import Cropper, { type Area, type Point } from "react-easy-crop";
 import "react-easy-crop/react-easy-crop.css";
 import { create } from "zustand";
@@ -17,6 +17,7 @@ import type { VideoInfo } from "@/lib/video/engines/types";
 import type { Orientation } from "@/lib/video/frame";
 import { displaySize, type Rotation, type Size } from "@/lib/video/geometry";
 import { useVideoStore } from "@/store/useVideoStore";
+import { useElementSize } from "./use-element-size";
 
 export const MIN_CROP_ZOOM = 1;
 export const MAX_CROP_ZOOM = 5;
@@ -70,25 +71,6 @@ export function turnedPicture(info: VideoInfo, rotate: Rotation): Size {
 /** The box shape for a chip: its ratio, or for Free the picture's own shape. */
 export function chipAspect(chip: CropAspectId, picture: Size): number {
   return CROP_ASPECTS.find((a) => a.id === chip)?.ratio ?? picture.width / picture.height;
-}
-
-/** The size of `ref`'s element, kept up to date on resize. */
-function useElementSize(ref: RefObject<HTMLElement>): Size | null {
-  const [size, setSize] = useState<Size | null>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const measure = () => {
-      const w = Math.floor(el.clientWidth);
-      const h = Math.floor(el.clientHeight);
-      setSize((prev) => (w <= 0 || h <= 0 ? null : prev?.width === w && prev.height === h ? prev : { width: w, height: h }));
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [ref]);
-  return size;
 }
 
 /**

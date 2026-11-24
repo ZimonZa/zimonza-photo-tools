@@ -26,7 +26,10 @@ export type ExportState =
   | {
       kind: "running";
       statusText: string;
+      /** The current pass's progress, 0..1; every pass starts again from 0. */
       progress: number;
+      /** Which encoding pass is running (a target size can take several); 0 until encoding starts. */
+      attempt: number;
       startedAt: number;
       confirm: { reason: string; estimatedSec: number } | null;
     }
@@ -366,7 +369,7 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
         if (previous.kind === "done") deps.revoke(previous.url);
         set((s) => ({
           quality: { ...s.quality, status: s.quality.status === "working" ? "idle" : s.quality.status },
-          exportState: { kind: "running", statusText: "Starting…", progress: 0, startedAt: deps.now(), confirm: null },
+          exportState: { kind: "running", statusText: "Starting…", progress: 0, attempt: 0, startedAt: deps.now(), confirm: null },
         }));
         const run = ++exportRun;
         const controller = new AbortController();
@@ -379,7 +382,13 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
           const result = await deps.exportVideo(recipe, {
             signal: controller.signal,
             onProgress: (progress) => run === exportRun && patchRunning({ progress }),
-            onStatus: (status) => run === exportRun && patchRunning({ statusText: describeStatus(status) }),
+            onStatus: (status) =>
+              run === exportRun &&
+              patchRunning(
+                status.phase === "encoding"
+                  ? { statusText: describeStatus(status), attempt: status.attempt, progress: 0 }
+                  : { statusText: describeStatus(status) }
+              ),
             confirmFallback: (confirm) =>
               new Promise<boolean>((resolve) => {
                 if (run !== exportRun) return resolve(false);

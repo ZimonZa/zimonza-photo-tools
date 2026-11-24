@@ -1,15 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Pause, Play } from "lucide-react";
 import { Segmented } from "@/components/ui";
 import type { VideoInfo } from "@/lib/video/engines/types";
-import type { Size } from "@/lib/video/geometry";
-import { drawPreviewFrame, previewCanvasSize, previewFrame, type PreviewFrame } from "@/lib/video/preview-render";
+import { containSize, drawPreviewFrame, previewCanvasSize, previewFrame, type PreviewFrame } from "@/lib/video/preview-render";
 import { MB } from "@/lib/video/recipe";
 import { formatTime } from "@/lib/video/timeline";
 import { useVideoStore } from "@/store/useVideoStore";
 import { QualitySwitch } from "./quality-switch";
+import { useElementSize } from "./use-element-size";
 
 const MODES = [
   { value: "original" as const, label: "Original" },
@@ -28,27 +28,6 @@ function playRange(frame: PreviewFrame, durationSec: number): { start: number; e
 
 const tenths = (t: number) => Math.round(t * 10) / 10;
 const hundredths = (t: number) => Math.round(t * 100) / 100;
-
-/** The largest `out`-shaped box that fits inside `ref`'s element, kept up to date on resize. */
-function useContainBox(ref: RefObject<HTMLElement>, out: Size): Size | null {
-  const [box, setBox] = useState<Size | null>(null);
-  const { width, height } = out;
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const measure = () => {
-      const scale = Math.min(el.clientWidth / width, el.clientHeight / height);
-      const w = Math.floor(width * scale);
-      const h = Math.floor(height * scale);
-      setBox((prev) => (w <= 0 || h <= 0 ? null : prev?.width === w && prev.height === h ? prev : { width: w, height: h }));
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [ref, width, height]);
-  return box;
-}
 
 function StatusPill({ children }: { children: ReactNode }) {
   return (
@@ -109,7 +88,9 @@ export function PreviewPlayer({ file, info, previewUrl, proxy }: PreviewPlayerPr
   /** Seconds the `<video>` clock runs ahead of the clip's own (the file's first timestamp, in browsers that keep it). */
   const offsetRef = useRef(0);
   const lastSeekId = useRef(seekRequest.id);
-  const box = useContainBox(stageRef, frame.out);
+  // Sized in the same render as the canvas's backing size, so a turn never shows a stretched frame.
+  const stage = useElementSize(stageRef);
+  const box = stage && containSize(stage, frame.out);
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
 
@@ -299,6 +280,8 @@ export function PreviewPlayer({ file, info, previewUrl, proxy }: PreviewPlayerPr
             />
             <canvas
               ref={canvasRef}
+              role="img"
+              aria-label="Video preview"
               width={canvasSize.width}
               height={canvasSize.height}
               className="absolute inset-0 m-auto bg-black shadow-card"
@@ -336,7 +319,7 @@ export function PreviewPlayer({ file, info, previewUrl, proxy }: PreviewPlayerPr
               type="button"
               onClick={togglePlay}
               aria-label={playing ? "Pause" : "Play"}
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent/15 text-foreground transition-colors hover:bg-accent/25"
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent/15 text-foreground transition-colors hover:bg-accent/25 lg:h-9 lg:w-9"
             >
               {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
             </button>

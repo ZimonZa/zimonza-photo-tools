@@ -7,6 +7,7 @@ import {
   TargetNotReachedError,
   TargetTooSmallError,
 } from "@/lib/video/errors";
+import { MAX_TARGET_ATTEMPTS } from "@/lib/video/bitrate";
 import type { ExportStatus } from "@/lib/video/export";
 import { MB } from "@/lib/video/recipe";
 
@@ -34,6 +35,20 @@ export function describeStatus(s: ExportStatus): string {
     case "fallback":
       return `Switching to the backup engine: ${s.reason}`;
   }
+}
+
+/**
+ * The running export's bar. `progress` is the current pass's (0..1); the percent stops at 99 because
+ * the file isn't ready until the export ends. A target size can take up to MAX_TARGET_ATTEMPTS
+ * passes, each starting from 0, so those name the pass (null before encoding starts or for a
+ * one-pass export).
+ */
+export function exportProgress(progress: number, attempt: number, targetSize: boolean): { percent: number; pass: string | null } {
+  const share = Number.isFinite(progress) ? Math.min(1, Math.max(0, progress)) : 0;
+  const percent = Math.min(99, Math.round(share * 100));
+  if (!targetSize || attempt < 1) return { percent, pass: null };
+  const pass = `Pass ${attempt} of up to ${MAX_TARGET_ATTEMPTS}`;
+  return { percent, pass: attempt === 1 ? pass : `${pass} — adjusting size` };
 }
 
 /** A message (and an optional hint) for a failed export; null when the user canceled. */

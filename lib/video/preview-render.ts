@@ -18,6 +18,16 @@ export interface PreviewFrame {
   trim: TrimRange | null;
 }
 
+/** The largest `shape`-shaped box that fits inside `room`, in whole pixels; null while either is empty. */
+export function containSize(room: Size, shape: Size): Size | null {
+  if (room.width <= 0 || room.height <= 0 || shape.width <= 0 || shape.height <= 0) return null;
+  const scale = Math.min(room.width / shape.width, room.height / shape.height);
+  // The epsilon keeps a side that fits exactly (366 / 1280 * 1280) from flooring to one less.
+  const width = Math.floor(shape.width * scale + 1e-9);
+  const height = Math.floor(shape.height * scale + 1e-9);
+  return width > 0 && height > 0 ? { width, height } : null;
+}
+
 /** The preview canvas's backing size: `out` with the long side at most `maxLong`, never scaled up, even sides. */
 export function previewCanvasSize(out: Size, maxLong = 960): Size {
   return capLongSide(out, maxLong);

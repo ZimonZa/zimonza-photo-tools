@@ -64,7 +64,7 @@ function PresetPicker() {
   // Two header items: on phones the MB field takes its own row under the bar's first row.
   return (
     <>
-      <div className="order-2 w-40 min-w-0 shrink lg:w-52">
+      <div className="order-2 w-28 min-w-0 shrink-0 lg:w-52 lg:shrink">
         <SelectField<PresetId> ariaLabel="Preset" value={asking ? "form" : presetId} onChange={pick} options={options} />
       </div>
       {(asking || presetId === "form") && (
@@ -110,9 +110,25 @@ function PresetPicker() {
 }
 
 /**
+ * The file name. Phones give it the room left on the bar's one row, in two small lines (camera and
+ * messenger names like "VID_20261124_153012.mp4" fit whole); computers keep one line cut at the end.
+ */
+function FileName({ name }: { name: string }) {
+  return (
+    <span
+      title={name}
+      className="order-1 line-clamp-2 min-w-0 flex-1 basis-0 break-all text-xs font-medium lg:block lg:max-w-[12rem] lg:flex-none lg:basis-auto lg:truncate lg:break-normal lg:text-sm lg:line-clamp-none"
+    >
+      {name}
+    </span>
+  );
+}
+
+/**
  * File name, destination preset and New video; on desktop also the estimate line in the middle
  * and the Preview quality switch on the right (phones show the estimate under the timeline and the
- * switch next to the preview). The far right is the Export button.
+ * switch next to the preview). The far right is the Export button. Phones keep all of it on one row
+ * (the Form upload size field takes a second row while it shows).
  */
 export function TopBar({
   fileName,
@@ -129,19 +145,14 @@ export function TopBar({
 }) {
   const plan = useExportPlan();
   return (
-    <header className="flex min-h-14 flex-wrap items-center gap-x-3 gap-y-2 border-b border-border bg-card/60 px-3 py-2 lg:col-span-3 lg:col-start-1 lg:row-start-1 lg:flex-nowrap">
-      <span
-        className="order-1 min-w-0 max-w-[30%] truncate text-sm font-medium lg:max-w-[12rem] lg:shrink-0"
-        title={fileName}
-      >
-        {fileName}
-      </span>
+    <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-2 gap-y-2 border-b border-border bg-card/60 px-3 py-1.5 lg:col-span-3 lg:col-start-1 lg:row-start-1 lg:flex-nowrap lg:gap-x-3 lg:py-2">
+      <FileName name={fileName} />
       <PresetPicker />
       <button
         type="button"
         onClick={onNewVideo}
         title="New video"
-        className="order-3 ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-sm hover:bg-muted lg:order-4 lg:ml-0 lg:px-3"
+        className="order-3 inline-flex w-11 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-border text-sm hover:bg-muted lg:order-4 lg:w-auto lg:justify-start lg:px-3 lg:py-1.5"
       >
         <RotateCcw className="h-4 w-4" />
         <span className="sr-only lg:not-sr-only">New video</span>
@@ -151,7 +162,7 @@ export function TopBar({
         onClick={onExport}
         disabled={!plan?.ok}
         title={plan && !plan.ok ? plan.message : "Export"}
-        className="order-3 inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-gradient-to-r from-accent to-accent2 px-3 py-1.5 text-sm font-medium text-accent-foreground transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 lg:order-7"
+        className="order-3 inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-gradient-to-r from-accent to-accent2 px-3 text-sm font-medium text-accent-foreground transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 lg:order-7 lg:py-1.5"
       >
         <Download className="h-4 w-4" />
         Export

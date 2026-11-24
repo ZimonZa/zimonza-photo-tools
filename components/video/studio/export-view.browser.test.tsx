@@ -122,6 +122,7 @@ const running = (confirm: { reason: string; estimatedSec: number } | null): Expo
   kind: "running",
   statusText: "Encoding…",
   progress: 0.4,
+  attempt: 1,
   startedAt: Date.now() - 5000,
   confirm,
 });
@@ -194,6 +195,37 @@ describe("ExportView", () => {
     await act(async () => button("Back to editor").click());
     expect(closeResult).toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
+  });
+
+  describe("progress", () => {
+    const bar = () => document.querySelector('[role="progressbar"]') as HTMLElement;
+    const withSize = (size: ReturnType<typeof useVideoStore.getState>["recipe"]["size"]) =>
+      useVideoStore.setState((s) => ({ recipe: { ...s.recipe, size } }));
+    afterEach(() => withSize({ kind: "quality", level: "balanced" }));
+
+    test("a finished pass of a target-size export never shows 100%; the next pass says why it runs", async () => {
+      showExport({ ...running(null), progress: 1, attempt: 1 } as ExportState);
+      withSize({ kind: "target", bytes: 2_000_000 });
+      await render(createElement(ExportView, { onClose: () => {} }));
+      expect(bar().getAttribute("aria-valuenow")).toBe("99");
+      expect(host.textContent).toContain("99%");
+      expect(host.textContent).not.toContain("100%");
+      expect(host.textContent).toContain("Pass 1 of up to 4");
+
+      await act(async () =>
+        useVideoStore.setState({ exportState: { ...running(null), progress: 0.3, attempt: 2 } as ExportState })
+      );
+      expect(bar().getAttribute("aria-valuenow")).toBe("30");
+      expect(host.textContent).toContain("Pass 2 of up to 4 — adjusting size");
+      expect(bar().getAttribute("aria-valuetext")).toBe("Pass 2 of up to 4 — adjusting size, 30%");
+    });
+
+    test("a one-pass export shows only the percent", async () => {
+      showExport({ ...running(null), progress: 1, attempt: 1 } as ExportState);
+      await render(createElement(ExportView, { onClose: () => {} }));
+      expect(bar().getAttribute("aria-valuenow")).toBe("99");
+      expect(host.textContent).not.toContain("Pass ");
+    });
   });
 
   test("Start export is disabled while a size typed in the Size panel is invalid", async () => {

@@ -145,7 +145,7 @@ function CustomSize({ frame, picture, onFrame }: { frame: ExactFrame; picture: S
           title={locked ? "Shape locked to the picture" : "Any shape"}
           onClick={() => setLocked(!locked)}
           className={cn(
-            "mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors",
+            "mb-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border transition-colors lg:h-9 lg:w-9",
             locked ? "border-accent bg-accent/10 text-accent" : "border-border text-muted-foreground hover:bg-muted"
           )}
         >
@@ -234,7 +234,8 @@ export function SizePanel() {
       )}
 
       {mode === "presets" && frame.kind === "exact" && (
-        <div className="grid grid-cols-2 gap-2">
+        // Phones: three across, so the fit choice below sits higher in the sheet.
+        <div className="grid grid-cols-3 gap-2 lg:grid-cols-2">
           {PRESET_SIZES.map((p) => {
             const active = frame.width === p.width && frame.height === p.height;
             return (

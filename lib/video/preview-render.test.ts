@@ -1,7 +1,19 @@
 import { describe, expect, test } from "vitest";
 import type { VideoInfo } from "@/lib/video/engines/types";
-import { previewCanvasSize, previewFrame } from "@/lib/video/preview-render";
+import { containSize, previewCanvasSize, previewFrame } from "@/lib/video/preview-render";
 import { BASE_RECIPE, type EditRecipe } from "@/lib/video/recipe";
+
+describe("containSize", () => {
+  test("the largest box of the shape that fits, in whole pixels", () => {
+    expect(containSize({ width: 366, height: 300 }, { width: 1280, height: 720 })).toEqual({ width: 366, height: 205 });
+    expect(containSize({ width: 366, height: 300 }, { width: 720, height: 1280 })).toEqual({ width: 168, height: 300 });
+    expect(containSize({ width: 200, height: 200 }, { width: 1080, height: 1080 })).toEqual({ width: 200, height: 200 });
+  });
+  test("null while there is no room or no shape", () => {
+    expect(containSize({ width: 0, height: 300 }, { width: 16, height: 9 })).toBeNull();
+    expect(containSize({ width: 300, height: 300 }, { width: 0, height: 9 })).toBeNull();
+  });
+});
 
 const INFO: VideoInfo = {
   durationSec: 10,
