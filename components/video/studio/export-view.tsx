@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, Loader2, VolumeX, X } from "lucide-react";
 import { Button, FieldGroup, Segmented } from "@/components/ui";
 import { cn } from "@/lib/utils";
+import { MAX_TARGET_MB, MIN_TARGET_MB, mbText, parseMb } from "@/lib/video/target-mb";
 import { MB, type Container, type QualityLevel } from "@/lib/video/recipe";
 import { useVideoStore } from "@/store/useVideoStore";
 import { FallbackDialog } from "./fallback-dialog";
 import { QualitySwitch } from "./quality-switch";
+import { useDialogKeys } from "./use-dialog-keys";
 import { useExportGuards } from "./use-export-guards";
 import { useExportPlan } from "./use-export-plan";
 
@@ -25,17 +27,7 @@ const LEVELS: { value: QualityLevel; label: string }[] = [
   { value: "small", label: "Small" },
 ];
 
-const MIN_TARGET_MB = 0.1;
-const MAX_TARGET_MB = 4000;
 const TARGET_MESSAGE = "Enter a size from " + MIN_TARGET_MB + " to " + MAX_TARGET_MB + " MB.";
-
-const mbText = (mb: number) => String(Number(mb.toFixed(2)));
-
-function parseMb(text: string): number | null {
-  const t = text.trim().replace(",", ".");
-  const n = Number(t);
-  return t !== "" && Number.isFinite(n) && n >= MIN_TARGET_MB && n <= MAX_TARGET_MB ? n : null;
-}
 
 const clock = (ms: number) => {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -273,19 +265,30 @@ function ErrorStep({ onClose }: { onClose: () => void }) {
 export function ExportView({ onClose }: { onClose: () => void }) {
   const load = useVideoStore((s) => s.load);
   const kind = useVideoStore((s) => s.exportState.kind);
+  const closeResult = useVideoStore((s) => s.closeResult);
   const panel = useRef<HTMLDivElement>(null);
   useExportGuards(kind === "running");
 
+  // Escape leaves the view: from settings straight away, from a result or error back to the editor.
+  // While exporting it does nothing; stopping takes the Cancel button.
+  const leave = useCallback(() => {
+    if (kind === "running") return;
+    if (kind !== "idle") closeResult();
+    onClose();
+  }, [kind, closeResult, onClose]);
+  const onKeyDown = useDialogKeys(panel, leave);
+
+  // Each step swaps the buttons under the cursor; keep focus in the dialog.
+  useEffect(() => {
+    const el = panel.current;
+    if (el && (!el.contains(document.activeElement) || document.activeElement === document.body)) el.focus();
+  }, [kind]);
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
-    if (!panel.current?.contains(document.activeElement)) panel.current?.focus();
     return () => before?.focus?.();
   }, []);
 
   if (load.kind !== "ready") return null;
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "Escape" && kind === "idle") onClose();
-  };
   const title =
     kind === "running" ? "Exporting…" : kind === "done" ? "Your video is ready" : kind === "error" ? "Export failed" : "Export";
 

@@ -59,18 +59,22 @@ test("WebM: the download is named .webm", async ({ page }) => {
 });
 
 test("Cancel during an export returns to the editor, and a new export completes", async ({ page }) => {
-  await openClip(page);
+  // Long and heavy enough that the encode cannot finish before Cancel is clicked.
+  await openClip(page, { seconds: 20, width: 1920, height: 1080 });
   const dialog = await openExport(page);
+  await dialog.getByRole("button", { name: "High", exact: true }).click();
   await dialog.getByRole("button", { name: "Start export" }).click();
   await expect(dialog.getByRole("progressbar")).toBeVisible();
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(exportDialog(page)).toHaveCount(0);
   await expect(estimate(page)).toContainText("MB");
 
+  // Canceled for real: the view opens on the settings, with no finished result.
   const again = await openExport(page);
   await expect(again.getByRole("button", { name: "Start export" })).toBeVisible({ timeout: 30_000 });
+  await expect(again.getByRole("link", { name: "Download" })).toHaveCount(0);
   await again.getByRole("button", { name: "Start export" }).click();
-  await expect(again.getByRole("link", { name: "Download" })).toBeVisible({ timeout: 150_000 });
+  await expect(again.getByRole("link", { name: "Download" })).toBeVisible({ timeout: 170_000 });
 });
 
 test("Edit again keeps every setting", async ({ page }) => {
@@ -91,6 +95,25 @@ test("Edit again keeps every setting", async ({ page }) => {
   const reopened = await openExport(page);
   await expect(reopened.getByRole("button", { name: "WebM", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(reopened.getByRole("textbox", { name: "Target size (MB)" })).toHaveValue("1");
+});
+
+test("Escape leaves the export view from settings and from the result; Tab stays inside", async ({ page }) => {
+  await openClip(page, { seconds: 3 });
+  let dialog = await openExport(page);
+  await page.keyboard.press("Escape");
+  await expect(exportDialog(page)).toHaveCount(0);
+
+  dialog = await openExport(page);
+  await dialog.getByRole("button", { name: "Start export" }).click();
+  const download = dialog.getByRole("link", { name: "Download" });
+  await expect(download).toBeVisible({ timeout: 150_000 });
+  for (let i = 0; i < 12; i++) {
+    await page.keyboard.press("Tab");
+    expect(await dialog.evaluate((d) => d.contains(document.activeElement))).toBe(true);
+  }
+  await page.keyboard.press("Escape");
+  await expect(exportDialog(page)).toHaveCount(0);
+  await expect(estimate(page)).toContainText("MB");
 });
 
 test("Export is disabled while the settings can't produce a file", async ({ page }) => {

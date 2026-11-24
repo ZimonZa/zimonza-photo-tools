@@ -202,4 +202,108 @@ describe("ExportView", () => {
     expect(button("Start export").disabled).toBe(true);
     expect(host.textContent).toContain("That output size is too small.");
   });
+
+  describe("focus and keyboard", () => {
+    const panel = () => document.querySelector('[role="dialog"]') as HTMLElement;
+    const inside = () => panel().contains(document.activeElement) && document.activeElement !== document.body;
+    const press = (key: string, init: KeyboardEventInit = {}) => {
+      const e = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
+      (document.activeElement ?? document.body).dispatchEvent(e);
+      return e;
+    };
+
+    test("focus stays inside the dialog after each step change", async () => {
+      showExport({ kind: "idle" });
+      await render(createElement(ExportView, { onClose: () => {} }));
+      expect(inside()).toBe(true);
+      const start = button("Start export");
+      start.focus();
+      await act(async () => useVideoStore.setState({ exportState: running(null) }));
+      expect(inside()).toBe(true);
+      await act(async () =>
+        useVideoStore.setState({ exportState: { kind: "error", message: "Nope." } })
+      );
+      expect(inside()).toBe(true);
+      button("Back to editor").focus();
+      await act(async () => useVideoStore.setState({ exportState: { kind: "idle" } }));
+      expect(inside()).toBe(true);
+    });
+
+    test("Tab and Shift+Tab cycle within the dialog", async () => {
+      showExport({ kind: "idle" });
+      await render(createElement(ExportView, { onClose: () => {} }));
+      const items = Array.from(
+        panel().querySelectorAll<HTMLElement>("button:not([disabled]), a[href], input, select, textarea")
+      );
+      const first = items[0];
+      const last = items[items.length - 1];
+      last.focus();
+      let e!: KeyboardEvent;
+      await act(async () => {
+        e = press("Tab");
+      });
+      expect(e.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(first);
+      await act(async () => {
+        e = press("Tab", { shiftKey: true });
+      });
+      expect(e.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(last);
+    });
+
+    test("Escape closes on idle, done and error (the last two via closeResult) and does nothing while running", async () => {
+      const closeResult = vi.fn();
+      const onClose = vi.fn();
+      const result = {
+        blob: new Blob([new Uint8Array(10)]),
+        fileName: "a.mp4",
+        engine: "webcodecs" as const,
+        width: 2,
+        height: 2,
+        attempts: 1,
+        steppedDown: false,
+        elapsedMs: 1,
+        info: INFO,
+      };
+      showExport({ kind: "idle" }, { closeResult });
+      await render(createElement(ExportView, { onClose }));
+
+      await act(async () => void press("Escape"));
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(closeResult).not.toHaveBeenCalled();
+
+      await act(async () => useVideoStore.setState({ exportState: running(null) }));
+      await act(async () => void press("Escape"));
+      expect(onClose).toHaveBeenCalledTimes(1);
+
+      await act(async () => useVideoStore.setState({ exportState: { kind: "done", url: "blob:x", result } }));
+      await act(async () => void press("Escape"));
+      expect(closeResult).toHaveBeenCalledTimes(1);
+      expect(onClose).toHaveBeenCalledTimes(2);
+
+      await act(async () => useVideoStore.setState({ exportState: { kind: "error", message: "No." } }));
+      await act(async () => void press("Escape"));
+      expect(closeResult).toHaveBeenCalledTimes(2);
+      expect(onClose).toHaveBeenCalledTimes(3);
+    });
+
+    test("Escape in the slow-engine question only answers it; Tab stays inside it", async () => {
+      const answerFallback = vi.fn();
+      const onClose = vi.fn();
+      showExport(running({ reason: "x", estimatedSec: 10 }), { answerFallback });
+      await render(createElement(ExportView, { onClose }));
+      const dialog = document.querySelector('[role="alertdialog"]') as HTMLElement;
+      const buttons = Array.from(dialog.querySelectorAll("button"));
+      buttons[buttons.length - 1].focus();
+      let e!: KeyboardEvent;
+      await act(async () => {
+        e = press("Tab");
+      });
+      expect(document.activeElement).toBe(buttons[0]);
+      await act(async () => void press("Escape"));
+      expect(answerFallback).toHaveBeenCalledWith(false);
+      expect(onClose).not.toHaveBeenCalled();
+      expect(e.defaultPrevented).toBe(true);
+    });
+  });
 });

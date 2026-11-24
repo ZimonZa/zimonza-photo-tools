@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, type KeyboardEvent } from "react";
+import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui";
+import { useDialogKeys } from "./use-dialog-keys";
 
 /**
  * The slow-engine question. An alert dialog that holds focus until answered; Escape means Cancel.
@@ -25,29 +26,7 @@ export function FallbackDialog({
     return () => before?.focus?.();
   }, []);
 
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      onAnswer(false);
-    } else if (e.key === "Tab") {
-      const items = Array.from(ref.current?.querySelectorAll<HTMLElement>("button") ?? []);
-      if (items.length === 0) return;
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      } else if (!ref.current?.contains(document.activeElement)) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-  };
-
+  const onKeyDown = useDialogKeys(ref, () => onAnswer(false));
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 p-4">
       <div

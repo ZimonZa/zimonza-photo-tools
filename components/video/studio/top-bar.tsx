@@ -3,22 +3,11 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Download, RotateCcw } from "lucide-react";
 import { SelectField } from "@/components/ui";
+import { mbText, parseMb } from "@/lib/video/target-mb";
 import { VIDEO_PRESETS, type PresetId } from "@/lib/video/presets";
 import { useVideoStore } from "@/store/useVideoStore";
 import { QualitySwitch } from "./quality-switch";
 import { useExportPlan } from "./use-export-plan";
-
-/** Smallest and largest "under N MB" a person can ask for. */
-const MIN_TARGET_MB = 0.1;
-const MAX_TARGET_MB = 4000;
-
-const mbText = (mb: number) => String(Number(mb.toFixed(2)));
-
-function parseMb(text: string): number | null {
-  const trimmed = text.trim().replace(",", ".");
-  const n = Number(trimmed);
-  return trimmed !== "" && Number.isFinite(n) && n >= MIN_TARGET_MB && n <= MAX_TARGET_MB ? n : null;
-}
 
 /**
  * The destination preset. "Form upload (under … MB)" first asks for the limit in a small field
