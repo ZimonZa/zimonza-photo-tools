@@ -158,6 +158,32 @@ describe("recipe and presets", () => {
     expect(s.recipe.frame).toEqual({ kind: "exact", width: 1080, height: 1920, fit: "cover" });
   });
 
+  test("changing only the fit of a preset's exact frame keeps the preset", async () => {
+    const { store } = await ready();
+    store.getState().choosePreset("ig-reel");
+    const frame = store.getState().recipe.frame;
+    if (frame.kind !== "exact") throw new Error("expected an exact frame");
+    store.getState().updateRecipe({ frame: { ...frame, fit: "blur" } });
+    expect(store.getState().presetId).toBe("ig-reel");
+    expect(store.getState().recipe.frame).toEqual({ kind: "exact", width: 1080, height: 1920, fit: "blur" });
+    // Back to cover: still the preset.
+    store.getState().updateRecipe({ frame: { ...frame, fit: "cover" } });
+    expect(store.getState().presetId).toBe("ig-reel");
+    // A fit change together with anything else is a hand edit.
+    store.getState().updateRecipe({ frame: { ...frame, fit: "blur" }, muted: true });
+    expect(store.getState().presetId).toBe("custom");
+  });
+
+  test("a new exact size, or a fit on a non-exact frame, still turns the preset Custom", async () => {
+    const { store } = await ready();
+    store.getState().choosePreset("ig-reel");
+    store.getState().updateRecipe({ frame: { kind: "exact", width: 1080, height: 1350, fit: "cover" } });
+    expect(store.getState().presetId).toBe("custom");
+    store.getState().choosePreset("whatsapp");
+    store.getState().updateRecipe({ frame: { kind: "exact", width: 1280, height: 720, fit: "blur" } });
+    expect(store.getState().presetId).toBe("custom");
+  });
+
   test("rotating after a crop remaps the crop", async () => {
     const { store } = await ready({ probe: async () => ({ ...INFO, width: 640, height: 360 }) });
     store.getState().updateRecipe({ crop: { left: 0, top: 0, width: 100, height: 50 } });

@@ -96,6 +96,54 @@ export function chipForCrop(crop: CropRect | null): CropAspectId {
   return chip?.id ?? "free";
 }
 
+/** Smallest Free crop side, in px (the same floor as `clampCrop`). */
+export const MIN_FREE_SIDE = 16;
+
+/**
+ * A Free crop size typed as text, in px of the turned picture: whole numbers from 16 up to the
+ * picture's own sides. Null when either side isn't.
+ */
+export function parseFreeSize(width: string, height: string, picture: Size): Size | null {
+  const side = (text: string, max: number) => {
+    const t = text.trim();
+    if (!/^\d+$/.test(t)) return null;
+    const n = Number(t);
+    return n >= MIN_FREE_SIDE && n <= max ? n : null;
+  };
+  const w = side(width, picture.width);
+  const h = side(height, picture.height);
+  return w !== null && h !== null ? { width: w, height: h } : null;
+}
+
+/**
+ * The part of the picture react-easy-crop's box covers: a box of `aspect` (width / height) fills
+ * the picture's width or height at zoom 1, and zoom divides it.
+ */
+export function coveredSize(aspect: number, picture: Size, zoom: number): Size {
+  return {
+    width: Math.min(picture.width, picture.height * aspect) / zoom,
+    height: Math.min(picture.height, picture.width / aspect) / zoom,
+  };
+}
+
+/** The zoom at which a box shaped like `size` covers exactly `size` of the picture (at least 1 for a size that fits). */
+export function exactZoom(size: Size, picture: Size): number {
+  return Math.min(picture.width / size.width, picture.height / size.height);
+}
+
+/** A `size` crop in the middle of `picture` (even, clamped); null when it is the whole picture. */
+export function centredBox(picture: Size, size: Size): CropRect | null {
+  return clampCrop(
+    {
+      left: floorEven((picture.width - size.width) / 2),
+      top: floorEven((picture.height - size.height) / 2),
+      width: size.width,
+      height: size.height,
+    },
+    picture
+  );
+}
+
 /** The largest even box of `ratio` (width / height) in the middle of `picture`; null when it is the whole picture. */
 export function centredCrop(picture: Size, ratio: number): CropRect | null {
   const width = floorEven(Math.round(Math.min(picture.width, picture.height * ratio)));

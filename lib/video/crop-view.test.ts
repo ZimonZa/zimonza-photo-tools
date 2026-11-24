@@ -1,5 +1,15 @@
 import { describe, expect, test } from "vitest";
-import { centredCrop, chipForCrop, cropFromCropper, cropperStartArea, sameCrop } from "@/lib/video/crop-view";
+import {
+  centredBox,
+  centredCrop,
+  chipForCrop,
+  coveredSize,
+  cropFromCropper,
+  cropperStartArea,
+  exactZoom,
+  parseFreeSize,
+  sameCrop,
+} from "@/lib/video/crop-view";
 
 const CLIP = { width: 1280, height: 720 };
 const PROXY = { width: 640, height: 360 };
@@ -116,6 +126,79 @@ describe("chipForCrop", () => {
     expect(chipForCrop({ left: 0, top: 0, width: 1280, height: 720 })).toBe("16:9");
     expect(chipForCrop({ left: 0, top: 0, width: 960, height: 720 })).toBe("4:3");
     expect(chipForCrop({ left: 0, top: 0, width: 1000, height: 720 })).toBe("free");
+  });
+});
+
+describe("Free width × height", () => {
+  test("parseFreeSize takes whole pixels from 16 up to the picture's sides", () => {
+    expect(parseFreeSize("640", "270", CLIP)).toEqual({ width: 640, height: 270 });
+    expect(parseFreeSize(" 1280 ", "720", CLIP)).toEqual({ width: 1280, height: 720 });
+    expect(parseFreeSize("16", "16", CLIP)).toEqual({ width: 16, height: 16 });
+    for (const [w, h] of [
+      ["10", "10"],
+      ["15", "100"],
+      ["1281", "100"],
+      ["100", "721"],
+      ["640.5", "270"],
+      ["", "270"],
+      ["abc", "270"],
+      ["-640", "270"],
+      ["1e3", "270"],
+    ]) {
+      expect(parseFreeSize(w, h, CLIP), `${w}×${h}`).toBeNull();
+    }
+    // The limits follow the turned picture.
+    expect(parseFreeSize("300", "1000", { width: 720, height: 1280 })).toEqual({ width: 300, height: 1000 });
+  });
+
+  test("the box (shaped W/H) covers exactly W×H of the picture at exactZoom", () => {
+    for (const size of [
+      { width: 640, height: 270 },
+      { width: 300, height: 600 },
+      { width: 1280, height: 720 },
+      { width: 100, height: 100 },
+    ]) {
+      const zoom = exactZoom(size, CLIP);
+      expect(zoom).toBeGreaterThanOrEqual(1);
+      const covered = coveredSize(size.width / size.height, CLIP, zoom);
+      expect(covered.width).toBeCloseTo(size.width, 6);
+      expect(covered.height).toBeCloseTo(size.height, 6);
+    }
+    expect(exactZoom({ width: 640, height: 270 }, CLIP)).toBe(2);
+    expect(exactZoom({ width: 300, height: 600 }, CLIP)).toBe(1.2);
+  });
+
+  test("at zoom 1 the box fills the picture's width or height", () => {
+    const wide = coveredSize(64 / 27, CLIP, 1);
+    expect(wide.width).toBeCloseTo(1280, 6);
+    expect(wide.height).toBeCloseTo(540, 6);
+    const tall = coveredSize(1 / 2, CLIP, 1);
+    expect(tall.width).toBeCloseTo(360, 6);
+    expect(tall.height).toBeCloseTo(720, 6);
+  });
+
+  test("the cropper's area at exactZoom commits as exactly W×H, also through a proxy", () => {
+    const size = { width: 640, height: 270 };
+    // A full-size preview reports the covered area in clip pixels.
+    expect(cropFromCropper({ x: 320, y: 224, ...size }, CLIP, CLIP, O0, 640 / 270)).toEqual({ left: 320, top: 224, ...size });
+    // A half-size proxy reports half; the commit scales back and keeps the W/H shape.
+    expect(cropFromCropper({ x: 160, y: 112, width: 320, height: 135 }, PROXY, CLIP, O0, 640 / 270)).toEqual({
+      left: 320,
+      top: 224,
+      ...size,
+    });
+    // A portrait strip.
+    expect(cropFromCropper({ x: 490, y: 60, width: 300, height: 600 }, CLIP, CLIP, O0, 0.5)).toEqual({
+      left: 490,
+      top: 60,
+      width: 300,
+      height: 600,
+    });
+  });
+
+  test("centredBox: a W×H crop in the middle (no preview to drag)", () => {
+    expect(centredBox(CLIP, { width: 640, height: 270 })).toEqual({ left: 320, top: 224, width: 640, height: 270 });
+    expect(centredBox(CLIP, { width: 1280, height: 720 })).toBeNull();
   });
 });
 

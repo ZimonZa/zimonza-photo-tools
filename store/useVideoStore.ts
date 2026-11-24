@@ -115,6 +115,17 @@ export const defaultDeps: VideoStoreDeps = {
   now: () => Date.now(),
 };
 
+/**
+ * Whether `next` differs from `prev` in nothing but the fit of the same exact frame. Choosing Crop
+ * to fill or Blurred background keeps a preset's size and format, so it keeps the preset's name.
+ */
+function onlyFitChanged(prev: RecipeEdits, next: RecipeEdits): boolean {
+  const a = prev.frame;
+  const b = next.frame;
+  if (a.kind !== "exact" || b.kind !== "exact" || a.width !== b.width || a.height !== b.height) return false;
+  return (Object.keys(next) as (keyof RecipeEdits)[]).every((k) => k === "frame" || next[k] === prev[k]);
+}
+
 function describeProbeError(e: unknown): string {
   return e instanceof Error && e.message ? e.message : "Couldn't read this video.";
 }
@@ -300,7 +311,7 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
             { rotate: next.rotate, flipH: next.flipH, flipV: next.flipV }
           );
         }
-        set({ recipe: next, presetId: "custom" });
+        set({ recipe: next, presetId: onlyFitChanged(recipe, next) ? get().presetId : "custom" });
         scheduleSample();
       },
 

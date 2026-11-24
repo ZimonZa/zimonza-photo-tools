@@ -4,6 +4,7 @@ import { recordClip, type ClipOptions } from "./fixtures";
 type Rgb = [number, number, number];
 // Colours come back approximate after lossy encoding.
 const isRed = ([r, g, b]: Rgb) => r > 160 && g < 90 && b < 90;
+const isBlue = ([r, g, b]: Rgb) => b > 160 && r < 90 && g < 90;
 const isBlack = ([r, g, b]: Rgb) => r + g + b < 30;
 
 const isPhone = (info: TestInfo) => info.project.name === "phone";
@@ -65,6 +66,62 @@ async function leaveTool(page: Page, info: TestInfo) {
   else await page.getByRole("navigation", { name: "Video tools" }).getByRole("button", { name: "Trim", exact: true }).click();
 }
 
+const cropVideo = (page: Page) => page.getByLabel("Crop preview");
+
+/** Wait until the cropper's video has loaded (its box is only placed then). */
+async function cropperReady(page: Page) {
+  await expect(page.getByTestId("crop-editor")).toBeVisible();
+  await expect.poll(() => cropVideo(page).evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0);
+}
+
+/**
+ * In the open Crop tool: 1:1, zoom 2× (step 0.1), then drag the picture right and down as far as it
+ * goes, so the box ends on the top-left corner of the picture as the cropper shows it.
+ */
+async function cropTopLeftSquare(page: Page, panel: Locator) {
+  await cropperReady(page);
+  await panel.getByRole("button", { name: "1:1", exact: true }).click();
+  const zoom = panel.getByRole("slider", { name: "Zoom" });
+  for (let i = 0; i < 10; i++) await zoom.press("ArrowRight");
+  const box = (await page.getByTestId("crop-editor").boundingBox())!;
+  await page.mouse.move(box.x + 10, box.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 10, box.y + box.height - 10, { steps: 12 });
+  await page.mouse.up();
+}
+
+/** The crop box's place on the cropper's (turned) picture, as fractions of the picture's box. */
+async function boxOnPicture(page: Page) {
+  const media = (await cropVideo(page).boundingBox())!;
+  const box = (await page.getByLabel("Crop box").boundingBox())!;
+  return {
+    x: (box.x - media.x) / media.width,
+    y: (box.y - media.y) / media.height,
+    w: box.width / media.width,
+    h: box.height / media.height,
+  };
+}
+
+async function expectBoxOnPicture(page: Page, want: { x: number; y: number; w: number; h: number }) {
+  await expect
+    .poll(async () => {
+      const got = await boxOnPicture(page);
+      return (["x", "y", "w", "h"] as const).every((k) => Math.abs(got[k] - want[k]) < 0.02) || JSON.stringify(got);
+    })
+    .toBe(true);
+}
+
+async function expectCentre(page: Page, is: (p: Rgb) => boolean, name: string) {
+  const canvas = previewCanvas(page);
+  await expect(canvas).toBeVisible();
+  await expect.poll(async () => is(await pixel(canvas, 0.5, 0.5)), { message: `preview centre is ${name}` }).toBe(true);
+}
+
+async function expectSquareCanvas(page: Page) {
+  const [w, h] = await previewCanvas(page).evaluate((el: HTMLCanvasElement) => [el.width, el.height]);
+  expect(w).toBe(h);
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto("/video/");
   await expect(page.getByText("Drop a video here")).toBeVisible();
@@ -82,6 +139,9 @@ test("Instagram Reel: 1080×1920 starts on Crop to fill; Blurred background fill
   await blur.click();
   await expect(blur).toHaveAttribute("aria-pressed", "true");
   await expect(cover).toHaveAttribute("aria-pressed", "false");
+  // Only the fit changed: still the Instagram Reel preset.
+  await expect(presetPicker(page)).toHaveValue("ig-reel");
+  await expect(presetPicker(page).locator("option:checked")).toHaveText("Instagram Reel / Story");
 
   const canvas = previewCanvas(page);
   for (const [fx, fy] of [
@@ -101,41 +161,116 @@ test("Crop 1:1 gives a square; rotating right keeps the crop on the same part of
   await expect(editor).toBeVisible();
   await expect(previewCanvas(page)).toHaveCount(0);
 
+  await cropperReady(page);
   await panel.getByRole("button", { name: "1:1", exact: true }).click();
   await expect(estimate(page)).toContainText("720×720");
 
-  // Zoom to 2× (step 0.1), then drag the picture right and down as far as it goes: the box ends on
-  // the picture's top-left 360×360 corner, all red.
-  const zoom = panel.getByRole("slider", { name: "Zoom" });
-  for (let i = 0; i < 10; i++) await zoom.press("ArrowRight");
+  // 2×, then the box on the picture's top-left 360×360 corner: all red.
+  await cropTopLeftSquare(page, panel);
   await expect(estimate(page)).toContainText("360×360");
-  const box = (await editor.boundingBox())!;
-  await page.mouse.move(box.x + 10, box.y + 10);
-  await page.mouse.down();
-  await page.mouse.move(box.x + box.width - 10, box.y + box.height - 10, { steps: 12 });
-  await page.mouse.up();
-
   await leaveTool(page, info);
-  const canvas = previewCanvas(page);
-  await expect(canvas).toBeVisible();
-  await expect.poll(async () => isRed(await pixel(canvas, 0.5, 0.5)), { message: "crop centre is red" }).toBe(true);
-  const size = await canvas.evaluate((el: HTMLCanvasElement) => [el.width, el.height]);
-  expect(size[0]).toBe(size[1]);
+  await expectCentre(page, isRed, "red");
+  await expectSquareCanvas(page);
 
   // Turn right: the crop follows the picture (without the remap the same box would show blue).
   const rotate = await openTool(page, info, "Rotate");
   await rotate.getByRole("button", { name: "90° right" }).click();
   await expect(estimate(page)).toContainText("360×360");
-  await expect.poll(async () => isRed(await pixel(canvas, 0.5, 0.5)), { message: "still red after turning" }).toBe(true);
+  await expectCentre(page, isRed, "still red after turning");
 
-  // Reopening the Crop tool starts from the current crop and changes nothing by itself.
+  // Reopening puts the box where the crop now is: the top-right of the turned 720×1280 picture.
   const again = await openTool(page, info, "Crop");
   await expect(again.getByRole("button", { name: "1:1", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await expect(editor).toBeVisible();
-  await page.waitForTimeout(500);
+  await cropperReady(page);
+  await expectBoxOnPicture(page, { x: 0.5, y: 0, w: 0.5, h: 360 / 1280 });
   await leaveTool(page, info);
   await expect(estimate(page)).toContainText("360×360");
-  await expect.poll(async () => isRed(await pixel(previewCanvas(page), 0.5, 0.5))).toBe(true);
+  await expectCentre(page, isRed, "red after reopening");
+});
+
+test("a crop made in the turned picture keeps its content through a flip and reopens where it was", async ({ page }, info) => {
+  await openClip(page, { pattern: "quadrants" });
+  const rotate = await openTool(page, info, "Rotate");
+  await rotate.getByRole("button", { name: "90° right" }).click();
+  await expect(estimate(page)).toContainText("720×1280");
+
+  // Turned right, the picture's top-left is the clip's bottom-left: blue.
+  const panel = await openTool(page, info, "Crop");
+  await cropTopLeftSquare(page, panel);
+  await expect(estimate(page)).toContainText("360×360");
+  await leaveTool(page, info);
+  await expectCentre(page, isBlue, "blue");
+  await expectSquareCanvas(page);
+
+  // Flip horizontally: the crop moves with the picture and still shows blue (unmoved it would be red).
+  const again = await openTool(page, info, "Rotate");
+  await again.getByRole("button", { name: "Flip horizontal" }).click();
+  await expect(estimate(page)).toContainText("360×360");
+  await expectCentre(page, isBlue, "still blue after flipping");
+
+  // Reopen: the cropper shows the turned picture unflipped, so the box is back on its top-left.
+  await openTool(page, info, "Crop");
+  await cropperReady(page);
+  await expectBoxOnPicture(page, { x: 0, y: 0, w: 0.5, h: 360 / 1280 });
+  // Nudge the box one step: it commits from the restored place and stays a blue square.
+  await page.getByLabel("Crop box").focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(estimate(page)).toContainText("360×360");
+  await leaveTool(page, info);
+  await expectCentre(page, isBlue, "blue after a nudge from the reopened box");
+  await expectSquareCanvas(page);
+});
+
+test("with a horizontal flip, the square picked on the cropper's top-left keeps that content", async ({ page }, info) => {
+  await openClip(page, { pattern: "quadrants" });
+  const rotate = await openTool(page, info, "Rotate");
+  await rotate.getByRole("button", { name: "Flip horizontal" }).click();
+  // The cropper shows the picture unflipped: its top-left is red (in the flipped preview it is green).
+  const panel = await openTool(page, info, "Crop");
+  await cropTopLeftSquare(page, panel);
+  await expect(estimate(page)).toContainText("360×360");
+  await leaveTool(page, info);
+  await expectCentre(page, isRed, "red");
+  await expectSquareCanvas(page);
+});
+
+test("desktop: Free takes a typed width × height; a size that doesn't fit is refused", async ({ page }, info) => {
+  test.skip(isPhone(info), "typed sizes on the desktop panel");
+  await openClip(page);
+  const panel = await openTool(page, info, "Crop");
+  await cropperReady(page);
+  await panel.getByRole("button", { name: "Free", exact: true }).click();
+  const width = panel.getByLabel("Width", { exact: true });
+  const height = panel.getByLabel("Height", { exact: true });
+  const setSize = panel.getByRole("button", { name: "Set size" });
+  // Free starts from the whole picture.
+  await expect(width).toHaveValue("1280");
+  await expect(height).toHaveValue("720");
+
+  await width.fill("640");
+  await height.fill("270");
+  await setSize.click();
+  await expect(estimate(page)).toContainText("640×270");
+  await expect(width).toHaveValue("640");
+  await expect(height).toHaveValue("270");
+
+  // A portrait strip.
+  await width.fill("300");
+  await height.fill("600");
+  await setSize.click();
+  await expect(estimate(page)).toContainText("300×600");
+
+  // Too small: an inline message, Set size off, Enter does nothing, the crop stays.
+  await width.fill("10");
+  await height.fill("10");
+  await expect(panel.getByRole("alert")).toContainText("whole numbers");
+  await expect(setSize).toBeDisabled();
+  await height.press("Enter");
+  await expect(estimate(page)).toContainText("300×600");
+
+  await leaveTool(page, info);
+  const [w, h] = await previewCanvas(page).evaluate((el: HTMLCanvasElement) => [el.width, el.height]);
+  expect(w / h).toBeCloseTo(0.5, 2);
 });
 
 test("Custom 0×100 shows the size message inline and in the estimate line", async ({ page }, info) => {
