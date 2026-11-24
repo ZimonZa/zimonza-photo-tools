@@ -202,8 +202,11 @@ export function PreviewPlayer({ file, info, previewUrl, proxy }: PreviewPlayerPr
       // Some browsers show the first frame at the file's own start time; keep our clock relative to it.
       offsetRef.current =
         info.startSec > 0 && Math.abs(video.currentTime - info.startSec) < OFFSET_TOLERANCE_SEC ? info.startSec : 0;
-      const { start } = playRange(frameRef.current, info.durationSec);
-      if (clipTime() < start) at(start);
+      const { start, end } = playRange(frameRef.current, info.durationSec);
+      // Coming back (e.g. from the Crop tool) picks up where the timeline shows.
+      const resume = useVideoStore.getState().currentTime;
+      if (resume > start && resume < end) at(resume);
+      else if (clipTime() < start) at(start);
       draw();
     };
     const onSeeked = () => {

@@ -1,18 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { VolumeX } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useVideoStore, type ToolId } from "@/store/useVideoStore";
-import { planOutput } from "@/lib/video/plan-output";
-import { describeExportError } from "@/lib/video/messages";
-import { MB } from "@/lib/video/recipe";
 import { BottomSheet } from "./bottom-sheet";
+import { CropEditor } from "./crop-editor";
+import { EstimateLine } from "./estimate-line";
+import { CropPanel } from "./panels/crop-panel";
 import { RotatePanel } from "./panels/rotate-panel";
+import { SizePanel } from "./panels/size-panel";
+import { SoundPanel } from "./panels/sound-panel";
 import { TrimPanel } from "./panels/trim-panel";
 import { PreviewPlayer } from "./preview-player";
 import { Timeline } from "./timeline";
 import { TOOLS, ToolRail } from "./tool-rail";
 import { TopBar } from "./top-bar";
+import { useIsDesktop } from "./use-is-desktop";
 import { VideoDropzone } from "./video-dropzone";
 
 /** Client root of the /video editor: dropzone while empty, the editor shell once a file is open. */
@@ -47,38 +49,19 @@ export function VideoStudio() {
   return <EditorShell />;
 }
 
-/** "≈ X MB · W×H", or the planning error in amber, plus a No sound badge. */
-function EstimateLine() {
-  const load = useVideoStore((s) => s.load);
-  const recipe = useVideoStore((s) => s.recipe);
-  const text = useMemo(() => {
-    if (load.kind !== "ready") return null;
-    try {
-      const { plan, estimatedBytes } = planOutput(load.info, { ...recipe, file: load.file });
-      return { ok: true as const, line: `≈ ${(estimatedBytes / MB).toFixed(1)} MB · ${plan.width}×${plan.height}` };
-    } catch (e) {
-      const d = describeExportError(e, recipe.size.kind === "target" ? recipe.size.bytes : null);
-      return { ok: false as const, line: d ? (d.hint ? `${d.message} ${d.hint}` : d.message) : "Can't plan this export." };
-    }
-  }, [load, recipe]);
-  if (!text) return null;
-  return (
-    <div className="flex h-10 items-center justify-center gap-2 px-3 text-sm lg:pointer-events-none lg:z-10 lg:col-start-2 lg:row-start-1 lg:h-14">
-      <span className={text.ok ? "font-medium" : "text-amber-500"}>{text.line}</span>
-      {recipe.muted && (
-        <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-500">
-          <VolumeX className="h-3 w-3" />
-          No sound
-        </span>
-      )}
-    </div>
-  );
-}
-
-function ToolPanel({ tool, label }: { tool: ToolId; label: string }) {
-  if (tool === "trim") return <TrimPanel />;
-  if (tool === "rotate") return <RotatePanel />;
-  return <p className="text-sm text-muted-foreground">{label} settings will appear here.</p>;
+function ToolPanel({ tool }: { tool: ToolId }) {
+  switch (tool) {
+    case "trim":
+      return <TrimPanel />;
+    case "crop":
+      return <CropPanel />;
+    case "size":
+      return <SizePanel />;
+    case "rotate":
+      return <RotatePanel />;
+    case "sound":
+      return <SoundPanel />;
+  }
 }
 
 function EditorShell() {
@@ -87,6 +70,7 @@ function EditorShell() {
   const muted = useVideoStore((s) => s.recipe.muted);
   const setTool = useVideoStore((s) => s.setTool);
   const reset = useVideoStore((s) => s.reset);
+  const desktop = useIsDesktop();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [headerH, setHeaderH] = useState<number | null>(null);
 
@@ -102,15 +86,22 @@ function EditorShell() {
   }, []);
   if (load.kind !== "ready") return null;
   const toolLabel = TOOLS.find((t) => t.id === tool)?.label ?? "";
+  // The crop box takes the preview's place while the Crop tool is open (on phones: while its sheet is).
+  const cropping = tool === "crop" && (desktop || sheetOpen);
 
   return (
     <div
       style={{ height: headerH === null ? "calc(100dvh - 4rem)" : `calc(100dvh - ${headerH}px)` }}
-      className="flex flex-col overflow-hidden lg:grid lg:grid-cols-[72px_1fr_340px] lg:grid-rows-[auto_1fr_auto]">
-      <TopBar fileName={load.file.name} onNewVideo={reset} />
+      className="flex flex-col overflow-hidden lg:grid lg:grid-cols-[72px_1fr_340px] lg:grid-rows-[auto_1fr_auto]"
+    >
+      <TopBar fileName={load.file.name} onNewVideo={reset} estimate={desktop ? <EstimateLine /> : undefined} />
 
       <section aria-label="Preview" className="flex min-h-0 min-w-0 flex-1 flex-col bg-black/30 lg:col-start-2 lg:row-start-2">
-        <PreviewPlayer file={load.file} info={load.info} previewUrl={load.previewUrl} proxy={load.proxy} />
+        {cropping ? (
+          <CropEditor info={load.info} previewUrl={load.previewUrl} />
+        ) : (
+          <PreviewPlayer file={load.file} info={load.info} previewUrl={load.previewUrl} proxy={load.proxy} />
+        )}
       </section>
 
       <section
@@ -120,7 +111,7 @@ function EditorShell() {
         <Timeline file={load.file} info={load.info} />
       </section>
 
-      <EstimateLine />
+      {!desktop && <EstimateLine className="min-h-10 px-3 py-1" />}
 
       <div className="lg:col-start-1 lg:row-start-2">
         <ToolRail
@@ -133,18 +124,20 @@ function EditorShell() {
         />
       </div>
 
-      <aside
-        aria-label="Tool settings"
-        className="hidden border-l border-border bg-card/40 p-4 lg:col-start-3 lg:row-start-2 lg:block"
-      >
-        <h2 className="mb-3 font-display text-base font-semibold">{toolLabel}</h2>
-        <ToolPanel tool={tool} label={toolLabel} />
-      </aside>
-
-      {sheetOpen && (
-        <BottomSheet title={toolLabel} onClose={() => setSheetOpen(false)}>
-          <ToolPanel tool={tool} label={toolLabel} />
-        </BottomSheet>
+      {desktop ? (
+        <aside
+          aria-label="Tool settings"
+          className="overflow-y-auto border-l border-border bg-card/40 p-4 lg:col-start-3 lg:row-start-2"
+        >
+          <h2 className="mb-3 font-display text-base font-semibold">{toolLabel}</h2>
+          <ToolPanel tool={tool} />
+        </aside>
+      ) : (
+        sheetOpen && (
+          <BottomSheet title={toolLabel} onClose={() => setSheetOpen(false)}>
+            <ToolPanel tool={tool} />
+          </BottomSheet>
+        )
       )}
     </div>
   );

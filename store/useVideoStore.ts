@@ -74,6 +74,11 @@ export interface VideoState {
   seekRequest: SeekRequest;
   quality: QualityState;
   exportState: ExportState;
+  /**
+   * Why the size typed in the Size panel can't be used (it never reaches the recipe). While set,
+   * the estimate line shows it and Export stays disabled.
+   */
+  sizeDraftError: string | null;
 
   openFile(file: File): Promise<void>;
   reset(): void;
@@ -81,6 +86,7 @@ export interface VideoState {
   updateRecipe(patch: Partial<RecipeEdits>): void;
   choosePreset(id: PresetId): void;
   setTargetMb(mb: number): void;
+  setSizeDraftError(message: string | null): void;
   setTool(t: ToolId): void;
   /** The player reports where the video paused or looped. Use `seek` to move the video. */
   setPlayhead(t: number): void;
@@ -211,7 +217,10 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
       if (exportState.kind === "done") deps.revoke(exportState.url);
     };
 
-    const clipDefaults = (): Pick<VideoState, "recipe" | "presetId" | "targetMb" | "tool" | "playhead" | "currentTime" | "exportState"> => ({
+    const clipDefaults = (): Pick<
+      VideoState,
+      "recipe" | "presetId" | "targetMb" | "tool" | "playhead" | "currentTime" | "exportState" | "sizeDraftError"
+    > => ({
       recipe: { ...BASE_RECIPE },
       presetId: "custom",
       targetMb: DEFAULT_TARGET_MB,
@@ -219,6 +228,7 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
       playhead: 0,
       currentTime: 0,
       exportState: { kind: "idle" },
+      sizeDraftError: null,
     });
 
     return {
@@ -307,6 +317,8 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
         set({ targetMb: mb });
         if (get().presetId === "form") get().choosePreset("form");
       },
+
+      setSizeDraftError: (sizeDraftError) => set({ sizeDraftError }),
 
       setTool: (tool) => set({ tool }),
 

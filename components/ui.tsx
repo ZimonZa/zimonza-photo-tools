@@ -65,6 +65,7 @@ export function Segmented<T extends string>({
         <button
           key={opt.value}
           type="button"
+          aria-pressed={value === opt.value}
           onClick={() => onChange(opt.value)}
           className={cn(
             "flex-1 rounded-lg px-2 py-1.5 text-sm font-medium transition-all duration-200",
@@ -154,6 +155,7 @@ export function Slider({
       </div>
       <input
         type="range"
+        aria-label={label}
         min={min}
         max={max}
         step={step}
@@ -209,11 +211,14 @@ export function Toggle({
 
 export function SelectField<T extends string>({
   label,
+  ariaLabel,
   value,
   onChange,
   options,
 }: {
   label?: string;
+  /** Accessible name when there is no visible label. */
+  ariaLabel?: string;
   value: T;
   onChange: (value: T) => void;
   options: { value: T; label: string }[];
@@ -226,6 +231,7 @@ export function SelectField<T extends string>({
         </span>
       )}
       <select
+        aria-label={ariaLabel}
         value={value}
         onChange={(e) => onChange(e.target.value as T)}
         className="w-full rounded-xl border border-border bg-card/60 px-3 py-2 text-sm outline-none transition-all duration-200 focus:border-accent/60 focus:shadow-glow"

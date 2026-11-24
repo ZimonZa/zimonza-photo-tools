@@ -174,6 +174,20 @@ describe("recipe and presets", () => {
     expect(s.recipe.container).toBe("mp4");
     expect(s.presetId).toBe("form");
   });
+
+  test("a size typed but not usable is held as a message, never in the recipe; a new file or reset clears it", async () => {
+    const { store } = await ready();
+    const recipe = store.getState().recipe;
+    store.getState().setSizeDraftError("That output size is too small. Use at least 16 × 16 pixels.");
+    expect(store.getState().sizeDraftError).toBe("That output size is too small. Use at least 16 × 16 pixels.");
+    expect(store.getState().recipe).toBe(recipe);
+    expect(store.getState().presetId).toBe("custom");
+    await store.getState().openFile(file("b.mp4"));
+    expect(store.getState().sizeDraftError).toBeNull();
+    store.getState().setSizeDraftError("x");
+    store.getState().reset();
+    expect(store.getState().sizeDraftError).toBeNull();
+  });
 });
 
 describe("quality sample", () => {
