@@ -5,6 +5,7 @@ import { useVideoStore, type ToolId } from "@/store/useVideoStore";
 import { BottomSheet } from "./bottom-sheet";
 import { CropEditor } from "./crop-editor";
 import { EstimateLine } from "./estimate-line";
+import { ExportView } from "./export-view";
 import { CropPanel } from "./panels/crop-panel";
 import { RotatePanel } from "./panels/rotate-panel";
 import { SizePanel } from "./panels/size-panel";
@@ -72,6 +73,7 @@ function EditorShell() {
   const reset = useVideoStore((s) => s.reset);
   const desktop = useIsDesktop();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [headerH, setHeaderH] = useState<number | null>(null);
 
   // Fill exactly the viewport below the site header, whatever height it has (phone nav wraps to a second row).
@@ -94,7 +96,15 @@ function EditorShell() {
       style={{ height: headerH === null ? "calc(100dvh - 4rem)" : `calc(100dvh - ${headerH}px)` }}
       className="flex flex-col overflow-hidden lg:grid lg:grid-cols-[72px_1fr_340px] lg:grid-rows-[auto_1fr_auto]"
     >
-      <TopBar fileName={load.file.name} onNewVideo={reset} estimate={desktop ? <EstimateLine /> : undefined} />
+      <TopBar
+        fileName={load.file.name}
+        onNewVideo={reset}
+        onExport={() => {
+          setSheetOpen(false);
+          setExportOpen(true);
+        }}
+        estimate={desktop ? <EstimateLine /> : undefined}
+      />
 
       <section aria-label="Preview" className="flex min-h-0 min-w-0 flex-1 flex-col bg-black/30 lg:col-start-2 lg:row-start-2">
         {cropping ? (
@@ -139,6 +149,7 @@ function EditorShell() {
           </BottomSheet>
         )
       )}
+      {exportOpen && <ExportView onClose={() => setExportOpen(false)} />}
     </div>
   );
 }

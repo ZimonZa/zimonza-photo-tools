@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { RotateCcw } from "lucide-react";
+import { Download, RotateCcw } from "lucide-react";
 import { SelectField } from "@/components/ui";
 import { VIDEO_PRESETS, type PresetId } from "@/lib/video/presets";
 import { useVideoStore } from "@/store/useVideoStore";
 import { QualitySwitch } from "./quality-switch";
+import { useExportPlan } from "./use-export-plan";
 
 /** Smallest and largest "under N MB" a person can ask for. */
 const MIN_TARGET_MB = 0.1;
@@ -26,14 +27,28 @@ function parseMb(text: string): number | null {
  */
 function PresetPicker() {
   const presetId = useVideoStore((s) => s.presetId);
+  const recipe = useVideoStore((s) => s.recipe);
   const targetMb = useVideoStore((s) => s.targetMb);
   const choosePreset = useVideoStore((s) => s.choosePreset);
   const setTargetMb = useVideoStore((s) => s.setTargetMb);
   const [asking, setAsking] = useState(false);
   const [draft, setDraft] = useState(() => mbText(targetMb));
 
-  // Applying a preset, or a hand edit that turns it Custom, ends the question.
-  useEffect(() => setAsking(false), [presetId]);
+  // Applying a preset, or any edit to the recipe (which turns the preset Custom), ends the question.
+  useEffect(() => setAsking(false), [presetId, recipe]);
+
+  const dismiss = () => {
+    setAsking(false);
+    setDraft(mbText(targetMb));
+  };
+  // Escape drops the question wherever the focus is.
+  useEffect(() => {
+    if (!asking) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && dismiss();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asking]);
 
   const mb = parseMb(draft);
   const options = VIDEO_PRESETS.map((p) => ({
@@ -90,6 +105,15 @@ function PresetPicker() {
           >
             Apply
           </button>
+          {asking && (
+            <button
+              type="button"
+              onClick={dismiss}
+              className="rounded-xl border border-border px-3 py-2 text-sm hover:bg-muted"
+            >
+              Cancel
+            </button>
+          )}
         </form>
       )}
     </>
@@ -99,18 +123,22 @@ function PresetPicker() {
 /**
  * File name, destination preset and New video; on desktop also the estimate line in the middle
  * and the Preview quality switch on the right (phones show the estimate under the timeline and the
- * switch next to the preview). The far right is kept for the Export button.
+ * switch next to the preview). The far right is the Export button.
  */
 export function TopBar({
   fileName,
   onNewVideo,
   estimate,
+  onExport,
 }: {
   fileName: string;
   onNewVideo: () => void;
   /** Desktop only: the estimate line, placed between the left group and the quality switch. */
   estimate?: ReactNode;
+  /** Opens the export view. */
+  onExport: () => void;
 }) {
+  const plan = useExportPlan();
   return (
     <header className="flex min-h-14 flex-wrap items-center gap-x-3 gap-y-2 border-b border-border bg-card/60 px-3 py-2 lg:col-span-3 lg:col-start-1 lg:row-start-1 lg:flex-nowrap">
       <span
@@ -128,6 +156,16 @@ export function TopBar({
       >
         <RotateCcw className="h-4 w-4" />
         <span className="sr-only lg:not-sr-only">New video</span>
+      </button>
+      <button
+        type="button"
+        onClick={onExport}
+        disabled={!plan?.ok}
+        title={plan && !plan.ok ? plan.message : "Export"}
+        className="order-3 inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-gradient-to-r from-accent to-accent2 px-3 py-1.5 text-sm font-medium text-accent-foreground transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 lg:order-7"
+      >
+        <Download className="h-4 w-4" />
+        Export
       </button>
       {estimate && <div className="order-5 hidden min-w-0 flex-1 justify-center px-2 lg:flex">{estimate}</div>}
       <div className="order-6 hidden shrink-0 lg:ml-auto lg:block">

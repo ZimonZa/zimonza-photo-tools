@@ -5,6 +5,7 @@ import { defineConfig } from "vitest/config";
 const root = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
+  esbuild: { jsx: "automatic" },
   resolve: {
     alias: { "@": root },
   },
@@ -27,7 +28,7 @@ export default defineConfig({
         define: { "process.env.NEXT_PUBLIC_BASE_PATH": JSON.stringify("") },
         test: {
           name: "browser",
-          include: ["lib/**/*.browser.test.ts"],
+          include: ["lib/**/*.browser.test.ts", "components/**/*.browser.test.tsx"],
           testTimeout: 60_000,
           browser: {
             enabled: true,
