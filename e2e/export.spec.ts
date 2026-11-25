@@ -116,6 +116,29 @@ test("Escape leaves the export view from settings and from the result; Tab stays
   await expect(estimate(page)).toContainText("MB");
 });
 
+test("the preview pauses under the export view, stops moving, and stays paused after it closes", async ({ page }) => {
+  await openClip(page, { seconds: 4 });
+  const video = page.getByLabel("Preview", { exact: true }).locator("video").first();
+  const playhead = page.getByRole("slider", { name: "Playhead" });
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => !v.paused && v.currentTime > 0.2)).toBe(true);
+
+  await openExport(page);
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.paused)).toBe(true);
+  const time = await video.evaluate((v: HTMLVideoElement) => v.currentTime);
+  const shown = await playhead.getAttribute("aria-valuenow");
+  await page.waitForTimeout(1200);
+  expect(await video.evaluate((v: HTMLVideoElement) => v.currentTime)).toBe(time);
+  expect(await playhead.getAttribute("aria-valuenow")).toBe(shown);
+
+  // Closing the view doesn't start it again.
+  await page.keyboard.press("Escape");
+  await expect(exportDialog(page)).toHaveCount(0);
+  await page.waitForTimeout(800);
+  expect(await video.evaluate((v: HTMLVideoElement) => v.paused)).toBe(true);
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
+});
+
 test("Export is disabled while the settings can't produce a file", async ({ page }) => {
   await openClip(page, { seconds: 3 });
   const dialog = await openExport(page);

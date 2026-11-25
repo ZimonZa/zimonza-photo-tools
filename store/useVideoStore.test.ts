@@ -293,6 +293,32 @@ describe("quality sample", () => {
     expect(store.getState().quality.url).toBeNull();
   });
 
+  test("no quality sample while the export view covers the preview; one in progress stops; uncovering schedules one", async () => {
+    const inflight = deferred<SamplePreview | null>();
+    let signal: AbortSignal | undefined;
+    const previewSample = vi.fn((_r: EditRecipe, _a: number, o: { signal?: AbortSignal }) => {
+      signal = o.signal;
+      return previewSample.mock.calls.length === 1 ? inflight.promise : Promise.resolve(sample(3_000_000));
+    });
+    const { store } = await ready({ previewSample });
+    await vi.advanceTimersByTimeAsync(QUALITY_DEBOUNCE_MS);
+    expect(store.getState().quality.status).toBe("working");
+
+    store.getState().setPreviewSuspended(true);
+    expect(signal?.aborted).toBe(true);
+    expect(store.getState().quality.status).toBe("idle");
+    // Edits in the export view (format, target) don't start one.
+    store.getState().updateRecipe({ container: "webm" });
+    store.getState().setPlayhead(2);
+    await vi.advanceTimersByTimeAsync(QUALITY_DEBOUNCE_MS * 3);
+    expect(previewSample).toHaveBeenCalledTimes(1);
+
+    store.getState().setPreviewSuspended(false);
+    await vi.advanceTimersByTimeAsync(QUALITY_DEBOUNCE_MS);
+    expect(previewSample).toHaveBeenCalledTimes(2);
+    expect(store.getState().quality).toMatchObject({ status: "ready", estimatedBytes: 3_000_000 });
+  });
+
   test("no quality sample while exporting", async () => {
     const run = deferred<ExportResult>();
     const { store, deps } = await ready({ exportVideo: () => run.promise });

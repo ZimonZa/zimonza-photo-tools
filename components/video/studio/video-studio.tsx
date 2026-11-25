@@ -85,6 +85,7 @@ function EditorShell() {
   const muted = useVideoStore((s) => s.recipe.muted);
   const setTool = useVideoStore((s) => s.setTool);
   const reset = useVideoStore((s) => s.reset);
+  const setPreviewSuspended = useVideoStore((s) => s.setPreviewSuspended);
   const desktop = useIsDesktop();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -101,6 +102,10 @@ function EditorShell() {
     ro.observe(header);
     return () => ro.disconnect();
   }, []);
+
+  // The export view covers the preview: no quality samples meanwhile (the player pauses itself).
+  useEffect(() => setPreviewSuspended(exportOpen), [exportOpen, setPreviewSuspended]);
+  useEffect(() => () => setPreviewSuspended(false), [setPreviewSuspended]);
   if (load.kind !== "ready") return null;
   const toolLabel = TOOLS.find((t) => t.id === tool)?.label ?? "";
   const phoneSheet = !desktop && sheetOpen;
@@ -146,9 +151,15 @@ function EditorShell() {
         className="flex min-h-[min(32dvh,calc(100%_-_20rem))] min-w-0 flex-1 flex-col bg-black/30 lg:col-start-2 lg:row-start-2 lg:min-h-0"
       >
         {cropping ? (
-          <CropEditor info={load.info} previewUrl={load.previewUrl} />
+          <CropEditor info={load.info} previewUrl={load.previewUrl} suspended={exportOpen} />
         ) : (
-          <PreviewPlayer file={load.file} info={load.info} previewUrl={load.previewUrl} proxy={load.proxy} />
+          <PreviewPlayer
+            file={load.file}
+            info={load.info}
+            previewUrl={load.previewUrl}
+            proxy={load.proxy}
+            suspended={exportOpen}
+          />
         )}
       </section>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import Cropper, { type Area, type Point } from "react-easy-crop";
 import "react-easy-crop/react-easy-crop.css";
 import { create } from "zustand";
@@ -78,9 +78,17 @@ export function chipAspect(chip: CropAspectId, picture: Size): number {
  * recipe. The person moves and zooms the picture under a box of the chosen ratio; at the end of
  * each drag or zoom the box becomes the recipe's crop, scaled to the clip's display size per axis
  * and mirrored for the flips (the cropper shows the picture unflipped). Opening it again starts
- * from the current crop.
+ * from the current crop. Covered by the export view (`suspended`), its video stops looping.
  */
-export function CropEditor({ info, previewUrl }: { info: VideoInfo; previewUrl: string | null }) {
+export function CropEditor({
+  info,
+  previewUrl,
+  suspended = false,
+}: {
+  info: VideoInfo;
+  previewUrl: string | null;
+  suspended?: boolean;
+}) {
   const rotate = useVideoStore((s) => s.recipe.rotate);
   const flipH = useVideoStore((s) => s.recipe.flipH);
   const flipV = useVideoStore((s) => s.recipe.flipV);
@@ -135,6 +143,7 @@ export function CropEditor({ info, previewUrl }: { info: VideoInfo; previewUrl: 
               aspect={aspect}
               zoom={zoom}
               maxZoom={maxZoom}
+              suspended={suspended}
             />
           </div>
         )}
@@ -153,6 +162,7 @@ function CropSurface({
   aspect,
   zoom,
   maxZoom,
+  suspended,
 }: {
   info: VideoInfo;
   previewUrl: string;
@@ -160,6 +170,7 @@ function CropSurface({
   aspect: number;
   zoom: number;
   maxZoom: number;
+  suspended: boolean;
 }) {
   const updateRecipe = useVideoStore((s) => s.updateRecipe);
   const [position, setPosition] = useState<Point>({ x: 0, y: 0 });
@@ -167,6 +178,14 @@ function CropSurface({
   const lastArea = useRef<Area | null>(null);
   // Read once when the video loads: the crop this view opened with.
   const [start] = useState(() => cropperStartArea(useVideoStore.getState().recipe.crop, info, orientation));
+
+  // The cropper's video always loops (muted); it rests while the export view covers it.
+  useEffect(() => {
+    const video = videoRef.current?.current;
+    if (!video) return;
+    if (suspended) video.pause();
+    else void video.play().catch(() => {});
+  }, [suspended]);
 
   /** Turn the box's area into the recipe's crop; nothing happens until the person has changed something. */
   const commit = (area: Area | null) => {

@@ -104,6 +104,11 @@ export interface VideoState {
   reportTime(t: number): void;
   setQualityEnabled(on: boolean): void;
   setPreviewMode(m: "original" | "compressed"): void;
+  /**
+   * The export view covers the preview (true) or uncovers it (false). While covered no quality
+   * sample is made; one in progress stops, and uncovering schedules a fresh one.
+   */
+  setPreviewSuspended(on: boolean): void;
   startExport(): Promise<void>;
   cancelExport(): void;
   answerFallback(ok: boolean): void;
@@ -153,6 +158,7 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
   let exportRun = 0;
   let fallbackResolve: ((ok: boolean) => void) | null = null;
   let seekId = 0;
+  let previewSuspended = false;
 
   const initialQuality = (enabled: boolean, mode: QualityState["mode"] = "original"): QualityState => ({
     enabled,
@@ -184,7 +190,7 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
 
     const runSample = async () => {
       const recipe = fullRecipe();
-      if (!recipe || !get().quality.enabled || get().exportState.kind === "running") return;
+      if (!recipe || !get().quality.enabled || get().exportState.kind === "running" || previewSuspended) return;
       const run = ++sampleRun;
       const controller = new AbortController();
       sampleAbort = controller;
@@ -212,7 +218,7 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
     const scheduleSample = () => {
       stopSample();
       const { quality, load, exportState } = get();
-      if (load.kind !== "ready" || exportState.kind === "running") return;
+      if (load.kind !== "ready" || exportState.kind === "running" || previewSuspended) return;
       if (!quality.enabled) {
         if (quality.status === "working") set({ quality: { ...quality, status: "idle" } });
         return;
@@ -377,6 +383,14 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
       },
 
       setPreviewMode: (mode) => set((s) => ({ quality: { ...s.quality, mode } })),
+
+      setPreviewSuspended(on) {
+        if (on === previewSuspended) return;
+        previewSuspended = on;
+        if (!on) return scheduleSample();
+        stopSample();
+        set((s) => (s.quality.status === "working" ? { quality: { ...s.quality, status: "idle" } } : s));
+      },
 
       async startExport() {
         const recipe = fullRecipe();

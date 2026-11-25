@@ -63,6 +63,11 @@ export interface PreviewPlayerProps {
   previewUrl: string | null;
   /** The preview plays a low-resolution copy. */
   proxy: boolean;
+  /**
+   * Covered by the export view: the video pauses (and stays paused when the view closes) and the
+   * compressed sample stops looping until it is uncovered.
+   */
+  suspended?: boolean;
 }
 
 /**
@@ -71,7 +76,7 @@ export interface PreviewPlayerProps {
  * switches to the store's 3-second compressed sample. The store's playhead is only set on pause,
  * on a loop back to the start, and after a seek, never per frame (each set restarts the sample).
  */
-export function PreviewPlayer({ file, info, previewUrl, proxy }: PreviewPlayerProps) {
+export function PreviewPlayer({ file, info, previewUrl, proxy, suspended = false }: PreviewPlayerProps) {
   const recipe = useVideoStore((s) => s.recipe);
   const quality = useVideoStore((s) => s.quality);
   const seekRequest = useVideoStore((s) => s.seekRequest);
@@ -84,6 +89,7 @@ export function PreviewPlayer({ file, info, previewUrl, proxy }: PreviewPlayerPr
   const stageRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const sampleRef = useRef<HTMLVideoElement>(null);
   const frameRef = useRef(frame);
   /** Seconds the `<video>` clock runs ahead of the clip's own (the file's first timestamp, in browsers that keep it). */
   const offsetRef = useRef(0);
@@ -245,6 +251,18 @@ export function PreviewPlayer({ file, info, previewUrl, proxy }: PreviewPlayerPr
     if (sampleUrl) videoRef.current?.pause();
   }, [sampleUrl]);
 
+  // Under the export view nothing plays: no sound, no per-frame drawing competing with the export.
+  // Only the sample (which always loops while it shows) starts again when the view closes.
+  useEffect(() => {
+    if (suspended) videoRef.current?.pause();
+  }, [suspended, previewUrl]);
+  useEffect(() => {
+    const sample = sampleRef.current;
+    if (!sample) return;
+    if (suspended) sample.pause();
+    else void sample.play().catch(() => {});
+  }, [suspended, sampleUrl]);
+
   const togglePlay = () => {
     const video = videoRef.current;
     if (!video) return;
@@ -294,8 +312,9 @@ export function PreviewPlayer({ file, info, previewUrl, proxy }: PreviewPlayerPr
         {sampleUrl && box && (
           <video
             key={sampleUrl}
+            ref={sampleRef}
             src={sampleUrl}
-            autoPlay
+            autoPlay={!suspended}
             loop
             muted
             playsInline
