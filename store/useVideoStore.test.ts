@@ -274,6 +274,29 @@ describe("quality sample", () => {
     expect(q.url).not.toBeNull();
   });
 
+  test("a short loop keeps its sample: the playhead it already holds restarts nothing", async () => {
+    const inflight = deferred<SamplePreview | null>();
+    let signal: AbortSignal | undefined;
+    const previewSample = vi.fn((_r: EditRecipe, _a: number, o: { signal?: AbortSignal }) => {
+      signal = o.signal;
+      return inflight.promise;
+    });
+    const { store } = await ready({ previewSample });
+    store.getState().updateRecipe({ trim: { start: 3.4, end: 4 } });
+    store.getState().setPlayhead(3.4);
+    // The 0.6 s loop wraps to its start, again and again, through the debounce and the encode.
+    for (let i = 0; i < 6; i++) {
+      await vi.advanceTimersByTimeAsync(600);
+      store.getState().setPlayhead(3.4);
+    }
+    expect(previewSample).toHaveBeenCalledTimes(1);
+    expect(previewSample.mock.calls[0][1]).toBe(3.4);
+    expect(signal?.aborted).toBe(false);
+    inflight.resolve(sample(800_000));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(store.getState().quality).toMatchObject({ status: "ready", estimatedBytes: 800_000 });
+  });
+
   test("a replaced sample url is revoked", async () => {
     const { store, revoked } = await ready();
     store.getState().updateRecipe({ muted: true });

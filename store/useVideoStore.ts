@@ -96,7 +96,10 @@ export interface VideoState {
   setTargetMb(mb: number): void;
   setSizeDraftError(message: string | null): void;
   setTool(t: ToolId): void;
-  /** The player reports where the video paused or looped. Use `seek` to move the video. */
+  /**
+   * The player reports where the video paused or looped. Use `seek` to move the video. The time it
+   * already holds changes nothing, so a short loop wrapping to its start keeps its quality sample.
+   */
   setPlayhead(t: number): void;
   /** Move the video (and the playhead) to `t`; the preview seeks on every call, even to the same time. */
   seek(t: number): void;
@@ -360,6 +363,7 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
       setTool: (tool) => set({ tool }),
 
       setPlayhead(t) {
+        if (t === get().playhead) return;
         set({ playhead: t });
         scheduleSample();
       },

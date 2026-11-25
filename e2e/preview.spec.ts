@@ -83,6 +83,32 @@ test("desktop: Preview quality shows the estimated size and a playing compressed
     .toBe(true);
 });
 
+test("desktop: a loop shorter than the sample's wait still gets its sample while it plays", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "Preview quality starts on for computers");
+  await openClip(page);
+  const estimated = async () => {
+    const line = page.getByText(/Estimated size \d+\.\d\d MB/);
+    if (!(await line.count())) return null;
+    return Number(/([\d.]+) MB/.exec(await line.innerText())![1]);
+  };
+  await expect.poll(estimated, { timeout: 20_000 }).not.toBeNull();
+  const whole = (await estimated())!;
+
+  // The last ~0.5 s: it ends with the clip, so each pass ends the video (pause, then ended) and wraps.
+  const start = page.getByRole("slider", { name: "Trim start" });
+  await start.focus();
+  for (let i = 0; i < 3; i++) await page.keyboard.press("Shift+ArrowRight");
+  for (let i = 0; i < 4; i++) await page.keyboard.press("ArrowRight");
+  const end = Number(await page.getByRole("slider", { name: "Trim end" }).getAttribute("aria-valuenow"));
+  expect(end - Number(await start.getAttribute("aria-valuenow"))).toBeLessThan(0.8);
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+
+  // The short part's own sample arrives: its estimate is a fraction of the whole clip's.
+  await expect.poll(estimated, { timeout: 25_000 }).toBeLessThan(whole / 2);
+  await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+});
+
 test("phone: the Preview quality switch sits in the preview controls; on shows Original | Compressed", async ({
   page,
 }, info) => {

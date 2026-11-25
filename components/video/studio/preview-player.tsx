@@ -181,8 +181,12 @@ export function PreviewPlayer({ file, info, previewUrl, proxy, suspended = false
     const onPause = () => {
       setPlaying(false);
       stopRaf();
-      show(clipTime());
-      setPlayhead(clipTime());
+      const t = clipTime();
+      show(t);
+      // The end of a pass pauses just before "ended" wraps to the start, which reports the start.
+      // Reporting the end too would move the playhead (and restart the quality sample) every pass.
+      const { end } = playRange(frameRef.current, info.durationSec);
+      if (!video.ended && t < end - SEEK_TOLERANCE_SEC) setPlayhead(t);
     };
     const onEnded = () => loopBack(playRange(frameRef.current, info.durationSec).start);
     const onLoaded = () => {
