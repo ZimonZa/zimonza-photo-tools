@@ -361,7 +361,8 @@ export function PreviewPlayer({ file, info, previewUrl, proxy, suspended = false
         </div>
         {quality.enabled && (
           <div className="flex w-full items-center justify-end gap-3 lg:ml-auto lg:w-auto">
-            {quality.estimatedBytes !== null && (
+            {/* Only the ready sample's own number: while a new one is made, the last one is out of date. */}
+            {quality.status === "ready" && quality.estimatedBytes !== null && (
               <span className="mr-auto tabular-nums lg:mr-0">
                 Estimated size {(quality.estimatedBytes / MB).toFixed(2)} MB
               </span>
