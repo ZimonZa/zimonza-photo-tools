@@ -67,10 +67,27 @@ test("the left arrow on the end handle lowers it by 0.1 s, Shift by 1 s", async 
 
 test("trim panel: use playhead buttons and reset", async ({ page }, info) => {
   test.skip(info.project.name !== "desktop", "the panel is always visible on desktop");
-  await dragHandle(page, endHandle(page), 0.5);
-  await expect(page.getByLabel("End (s)")).not.toHaveValue("");
-  await page.getByRole("button", { name: "Reset trim" }).click();
   const duration = await num(endHandle(page), "aria-valuemax");
+  const playhead = page.getByRole("slider", { name: "Playhead" });
+  const seekTo = async (fraction: number) => {
+    const t = (await track(page).boundingBox())!;
+    await page.mouse.click(t.x + t.width * fraction, t.y + t.height / 2);
+    await expect.poll(() => num(playhead)).toBeCloseTo(duration * fraction, 0);
+    return num(playhead);
+  };
+
+  const at = await seekTo(0.25);
+  await page.getByRole("button", { name: "Use playhead as start" }).click();
+  await expect.poll(() => num(startHandle(page))).toBeCloseTo(at, 1);
+  await expect(page.getByLabel("Start (s)")).toHaveValue(at.toFixed(1));
+
+  const to = await seekTo(0.75);
+  await page.getByRole("button", { name: "Use playhead as end" }).click();
+  await expect.poll(() => num(endHandle(page))).toBeCloseTo(to, 1);
+  await expect(page.getByLabel("End (s)")).toHaveValue(to.toFixed(1));
+  expect(await num(startHandle(page))).toBeCloseTo(at, 1);
+
+  await page.getByRole("button", { name: "Reset trim" }).click();
   expect(await num(endHandle(page))).toBeCloseTo(duration, 1);
   expect(await num(startHandle(page))).toBe(0);
 });
@@ -98,11 +115,20 @@ test("playback never shows a time outside the trim", async ({ page }) => {
 
 test("clicking the timeline seeks the video, also to the time it already shows", async ({ page }) => {
   const video = page.getByLabel("Preview", { exact: true }).locator("video").first();
+  const videoTime = () => video.evaluate((v: HTMLVideoElement) => v.currentTime);
   const t = (await track(page).boundingBox())!;
-  await page.mouse.click(t.x + t.width * 0.5, t.y + t.height / 2);
+  const clickMiddle = () => page.mouse.click(t.x + t.width * 0.5, t.y + t.height / 2);
+  await clickMiddle();
   const mid = await num(page.getByRole("slider", { name: "Playhead" }));
   expect(mid).toBeGreaterThan(1);
-  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime)).toBeCloseTo(mid, 1);
+  await expect.poll(videoTime).toBeCloseTo(mid, 1);
+
+  // Play on from there, pause, and click the very same spot: the video goes back to it.
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await expect.poll(videoTime).toBeGreaterThan(mid + 0.4);
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await clickMiddle();
+  await expect.poll(videoTime).toBeCloseTo(mid, 1);
 });
 
 test("desktop: at the minimum trim both handles stay grabbable; the start handle can widen it", async ({ page }, info) => {

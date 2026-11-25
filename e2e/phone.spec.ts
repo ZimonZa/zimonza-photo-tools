@@ -262,8 +262,11 @@ test("export view: the whole screen, the quality switch (off), and a bar that ne
   const bar = dialog.getByRole("progressbar");
   await expect(bar).toBeVisible();
   const download = dialog.getByRole("link", { name: "Download" });
+  const failed = dialog.getByRole("heading", { name: "Export failed" });
   const seen: number[] = [];
   while (!(await download.isVisible())) {
+    // An export error ends the wait at once, with its message, instead of at the test's timeout.
+    if (await failed.isVisible()) throw new Error(`The export failed: ${await dialog.innerText()}`);
     const now = await bar.getAttribute("aria-valuenow", { timeout: 250 }).catch(() => null);
     if (now !== null) seen.push(Number(now));
     await page.waitForTimeout(50);

@@ -324,18 +324,24 @@ test("Sound Off shows the No sound badge; On removes it", async ({ page }, info)
   await expect(estimate(page).getByText("No sound")).toHaveCount(0);
 });
 
-test("Form upload under 25 MB: the estimate stays within 25 MB, as MP4", async ({ page }) => {
+test("Form upload under a size the clip is over: the estimate comes down within it, as MP4", async ({ page }) => {
   await openClip(page);
+  // As it is, the clip is bigger than the target picked here, so staying within it means something.
+  const original = await estimateMb(page);
+  const target = Math.floor(original * 5) / 10; // about half, rounded down to 0.1 MB
+  expect(target).toBeGreaterThanOrEqual(0.3);
+  expect(target).toBeLessThan(original);
+
   const picker = presetPicker(page);
   await picker.selectOption("form");
   const mb = page.getByRole("textbox", { name: "Target size in MB" });
   await expect(mb).toHaveValue("10");
-  await mb.fill("25");
+  await mb.fill(String(target));
   await page.getByRole("button", { name: "Apply", exact: true }).click();
   await expect(picker).toHaveValue("form");
-  await expect(picker.locator("option:checked")).toHaveText("Form upload (under 25 MB)");
+  await expect(picker.locator("option:checked")).toHaveText(`Form upload (under ${target} MB)`);
   await expect(estimate(page)).toContainText("MP4");
-  expect(await estimateMb(page)).toBeLessThanOrEqual(25);
+  await expect.poll(() => estimateMb(page)).toBeLessThanOrEqual(target);
 });
 
 test("a manual change after a preset flips the dropdown to Custom", async ({ page }, info) => {
