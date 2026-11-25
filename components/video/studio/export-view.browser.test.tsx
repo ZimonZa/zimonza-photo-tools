@@ -194,6 +194,26 @@ describe("ExportView", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  test("done, muted: the No sound badge shows with the result too", async () => {
+    const result = {
+      blob: new Blob([new Uint8Array(10)]),
+      fileName: "clip-zimonza.mp4",
+      engine: "webcodecs" as const,
+      width: 1280,
+      height: 720,
+      attempts: 1,
+      steppedDown: false,
+      elapsedMs: 10,
+      info: INFO,
+    };
+    showExport({ kind: "done", url: "blob:fake", result });
+    useVideoStore.setState((s) => ({ recipe: { ...s.recipe, muted: true } }));
+    await render(createElement(ExportView, { onClose: () => {} }));
+    expect(host.textContent).toContain("No sound");
+    await act(async () => useVideoStore.setState((s) => ({ recipe: { ...s.recipe, muted: false } })));
+    expect(host.textContent).not.toContain("No sound");
+  });
+
   test("error: message, hint and Back to editor", async () => {
     const closeResult = vi.fn();
     showExport({ kind: "error", message: "Couldn't get the video under 2 MB.", hint: "Try a bigger target." }, { closeResult });

@@ -1,9 +1,9 @@
 "use client";
 
-import { VolumeX } from "lucide-react";
 import { MB, type Container } from "@/lib/video/recipe";
 import { cn } from "@/lib/utils";
 import { useVideoStore } from "@/store/useVideoStore";
+import { NoSoundBadge } from "./no-sound-badge";
 import { useExportPlan } from "./use-export-plan";
 
 const FORMAT: Record<Container, string> = { mp4: "MP4", webm: "WebM" };
@@ -25,12 +25,7 @@ export function EstimateLine({ className }: { className?: string }) {
       className={cn("flex min-w-0 flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center text-sm", className)}
     >
       <span className={cn("leading-snug", text.ok ? "font-medium tabular-nums" : "text-amber-500")}>{text.line}</span>
-      {recipe.muted && (
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-500">
-          <VolumeX className="h-3 w-3" />
-          No sound
-        </span>
-      )}
+      {recipe.muted && <NoSoundBadge />}
     </div>
   );
 }

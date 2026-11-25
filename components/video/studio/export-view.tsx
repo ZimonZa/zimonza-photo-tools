@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, Loader2, VolumeX, X } from "lucide-react";
+import { Download, Loader2, X } from "lucide-react";
 import { Button, FieldGroup, Segmented } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { MAX_TARGET_MB, MIN_TARGET_MB, mbText, parseMb } from "@/lib/video/target-mb";
@@ -9,6 +9,7 @@ import { exportProgress, timeLeft } from "@/lib/video/messages";
 import { MB, type Container, type QualityLevel } from "@/lib/video/recipe";
 import { useVideoStore } from "@/store/useVideoStore";
 import { FallbackDialog } from "./fallback-dialog";
+import { NoSoundBadge } from "./no-sound-badge";
 import { QualitySwitch } from "./quality-switch";
 import { useDialogKeys } from "./use-dialog-keys";
 import { useExportGuards } from "./use-export-guards";
@@ -34,15 +35,6 @@ const clock = (ms: number) => {
   const s = Math.max(0, Math.floor(ms / 1000));
   return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
 };
-
-function NoSoundBadge() {
-  return (
-    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-500">
-      <VolumeX className="h-3 w-3" />
-      No sound
-    </span>
-  );
-}
 
 /** Format, size, the planned result and Start export. Edits go straight to the recipe, so the estimate stays live. */
 function SettingsStep({ onClose }: { onClose: () => void }) {
@@ -215,14 +207,16 @@ function RunningStep({ onClose }: { onClose: () => void }) {
 
 function DoneStep({ onClose }: { onClose: () => void }) {
   const state = useVideoStore((s) => s.exportState);
+  const muted = useVideoStore((s) => s.recipe.muted);
   const closeResult = useVideoStore((s) => s.closeResult);
   if (state.kind !== "done") return null;
   const { result, url } = state;
   return (
     <div className="space-y-4">
       <video aria-label="Exported video" src={url} controls playsInline className="max-h-[50vh] w-full rounded-xl bg-black" />
-      <p className="text-center text-sm font-medium tabular-nums">
+      <p className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center text-sm font-medium tabular-nums">
         {(result.blob.size / MB).toFixed(2)} MB · {result.width}×{result.height}
+        {muted && <NoSoundBadge />}
       </p>
       <div className="flex gap-2">
         <Button
