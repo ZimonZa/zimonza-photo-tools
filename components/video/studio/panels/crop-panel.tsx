@@ -16,7 +16,7 @@ import { MIN_SIDE } from "@/lib/video/frame";
 import type { Size } from "@/lib/video/geometry";
 import { cn } from "@/lib/utils";
 import { useVideoStore } from "@/store/useVideoStore";
-import { MIN_CROP_ZOOM, chipAspect, turnedPicture, useCropView } from "../crop-editor";
+import { MIN_CROP_ZOOM, chipAspect, turnedPicture, useCropView } from "../use-crop-view";
 
 /**
  * Free: the crop's width × height in px of the turned picture. The fields show the current crop's
