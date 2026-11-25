@@ -17,16 +17,21 @@ export function useExportGuards(running: boolean): void {
     if (!running) return;
     let stopped = false;
     let sentinel: WakeLockSentinelLike | null = null;
+    /** A request is on its way; asking again meanwhile would leave one lock that is never released. */
+    let requesting = false;
 
     const acquire = async () => {
+      const wakeLock = (navigator as WakeLockNavigator).wakeLock;
+      if (!wakeLock || requesting || (sentinel && !sentinel.released)) return;
+      requesting = true;
       try {
-        const wakeLock = (navigator as WakeLockNavigator).wakeLock;
-        if (!wakeLock || (sentinel && !sentinel.released)) return;
         const next = await wakeLock.request("screen");
         if (stopped) void next.release().catch(() => {});
         else sentinel = next;
       } catch {
         // Not allowed or not supported: exporting still works.
+      } finally {
+        requesting = false;
       }
     };
     const onVisible = () => {

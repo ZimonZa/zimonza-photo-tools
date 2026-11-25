@@ -78,6 +78,25 @@ describe("useExportGuards", () => {
     expect(after.defaultPrevented).toBe(false);
   });
 
+  test("the tab returning while the lock is still being asked for asks only once, so no lock is left behind", async () => {
+    let grant!: (s: { released: boolean; release: () => Promise<void> }) => void;
+    const sentinel = {
+      released: false,
+      release: vi.fn(async () => {
+        sentinel.released = true;
+      }),
+    };
+    const request = vi.fn(() => new Promise<typeof sentinel>((r) => (grant = r)));
+    Object.defineProperty(navigator, "wakeLock", { value: { request }, configurable: true });
+    await render(createElement(Guard, { running: true }));
+    expect(request).toHaveBeenCalledTimes(1);
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    expect(request).toHaveBeenCalledTimes(1);
+    await act(async () => grant(sentinel));
+    await render(createElement(Guard, { running: false }));
+    expect(sentinel.release).toHaveBeenCalled();
+  });
+
   test("releases on unmount, and works where wake lock is missing or throws", async () => {
     const { sentinels } = stubWakeLock();
     await render(createElement(Guard, { running: true }));
