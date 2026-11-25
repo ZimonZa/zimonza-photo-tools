@@ -1,14 +1,18 @@
 "use client";
 
 import { useMemo } from "react";
+import { TargetTooSmallError } from "@/lib/video/errors";
 import { describeExportError } from "@/lib/video/messages";
 import { planOutput } from "@/lib/video/plan-output";
 import { useVideoStore } from "@/store/useVideoStore";
 
-/** What the current settings would export, or why they can't produce a file. */
+/**
+ * What the current settings would export, or why they can't produce a file. `targetTooSmall`: the
+ * target MB is the problem, and the export view (which holds that field) is where to fix it.
+ */
 export type ExportPlanState =
   | { ok: true; width: number; height: number; steppedDown: boolean; estimatedBytes: number }
-  | { ok: false; message: string; hint?: string };
+  | { ok: false; message: string; hint?: string; targetTooSmall?: true };
 
 /**
  * Plan the export for the open clip and current settings; null before a clip is ready. A size typed
@@ -26,7 +30,12 @@ export function useExportPlan(): ExportPlanState | null {
       return { ok: true, width: plan.width, height: plan.height, steppedDown: plan.steppedDown, estimatedBytes };
     } catch (e) {
       const d = describeExportError(e, recipe.size.kind === "target" ? recipe.size.bytes : null);
-      return { ok: false, message: d?.message ?? "Can't plan this export.", ...(d?.hint ? { hint: d.hint } : {}) };
+      return {
+        ok: false,
+        message: d?.message ?? "Can't plan this export.",
+        ...(d?.hint ? { hint: d.hint } : {}),
+        ...(e instanceof TargetTooSmallError ? { targetTooSmall: true as const } : {}),
+      };
     }
   }, [load, recipe, sizeDraftError]);
 }

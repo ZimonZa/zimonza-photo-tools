@@ -288,14 +288,16 @@ test("Custom 0×100 shows the size message inline and in the estimate line", asy
   await height.fill("100");
   const message = "That output size is too small. Use at least 16 × 16 pixels.";
   await expect(panel.getByText(message)).toBeVisible();
-  // Shown next to Export (Task 7 disables the button on the same state).
+  // Shown next to Export, which stays off: the size is fixed here, not in the export view.
   await expect(estimate(page)).toContainText(message);
+  await expect(page.getByRole("button", { name: "Export", exact: true })).toBeDisabled();
 
   // A size that works clears both, reaches the estimate, and its new shape offers the fit choice.
   await width.fill("200");
   await expect(panel.getByText(message)).toHaveCount(0);
   await expect(estimate(page)).toContainText("200×100");
   await expect(panel.getByRole("button", { name: "Crop to fill" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Export", exact: true })).toBeEnabled();
 });
 
 test("Sound Off shows the No sound badge; On removes it", async ({ page }, info) => {
@@ -338,13 +340,28 @@ test("a manual change after a preset flips the dropdown to Custom", async ({ pag
   await expect(picker).toHaveValue("custom");
 });
 
-test("a 0.2 MB target on a 30 s clip shows the amber planning message with a hint", async ({ page }) => {
-  await openClip(page, { seconds: 30 });
+test("a target too small for the clip: the amber hint, and Export opens the view where the MB is fixed", async ({ page }) => {
+  await openClip(page, { seconds: 6 });
   await presetPicker(page).selectOption("form");
-  await page.getByRole("textbox", { name: "Target size in MB" }).fill("0.2");
+  await page.getByRole("textbox", { name: "Target size in MB" }).fill("0.1");
   await page.getByRole("button", { name: "Apply", exact: true }).click();
   const line = estimate(page);
   await expect(line).toContainText("That size is too small for a video this long.");
   await expect(line).toContainText("Try at least");
   await expect(line.getByText(/Try at least/)).toHaveClass(/text-amber/);
+
+  // The fix the hint names lives in the export view, so Export stays on for this one problem.
+  const exportButton = page.getByRole("button", { name: "Export", exact: true });
+  await expect(exportButton).toBeEnabled();
+  await exportButton.click();
+  const dialog = page.getByRole("dialog", { name: "Export" });
+  const start = dialog.getByRole("button", { name: "Start export" });
+  await expect(dialog.getByRole("alert")).toContainText("Try at least");
+  await expect(start).toBeDisabled();
+  const mb = dialog.getByRole("textbox", { name: "Target size (MB)" });
+  await expect(mb).toHaveValue("0.1");
+  await mb.fill("1");
+  await expect(start).toBeEnabled();
+  await start.click();
+  await expect(dialog.getByRole("link", { name: "Download" })).toBeVisible({ timeout: 150_000 });
 });

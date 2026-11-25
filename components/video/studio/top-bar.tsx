@@ -144,6 +144,10 @@ export function TopBar({
   onExport: () => void;
 }) {
   const plan = useExportPlan();
+  // A target that's too small stays exportable: the export view explains it and holds the MB field
+  // (the hint's fix), and keeps Start off until it works. Every other problem is fixed in the editor.
+  const canOpen = plan !== null && (plan.ok || plan.targetTooSmall === true);
+  const problem = plan && !plan.ok ? [plan.message, plan.hint].filter(Boolean).join(" ") : null;
   return (
     <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-2 gap-y-2 border-b border-border bg-card/60 px-3 py-1.5 lg:col-span-3 lg:col-start-1 lg:row-start-1 lg:flex-nowrap lg:gap-x-3 lg:py-2">
       <FileName name={fileName} />
@@ -160,8 +164,8 @@ export function TopBar({
       <button
         type="button"
         onClick={onExport}
-        disabled={!plan?.ok}
-        title={plan && !plan.ok ? plan.message : "Export"}
+        disabled={!canOpen}
+        title={problem ?? "Export"}
         className="order-3 inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-gradient-to-r from-accent to-accent2 px-3 text-sm font-medium text-accent-foreground transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 lg:order-7 lg:py-1.5"
       >
         <Download className="h-4 w-4" />
