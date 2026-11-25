@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
+import { ImageOff } from "lucide-react";
 import type { VideoInfo } from "@/lib/video/engines/types";
 import { makeFilmstrip } from "@/lib/video/filmstrip";
 import type { TrimRange } from "@/lib/video/recipe";
@@ -19,7 +20,7 @@ const BIG_STEP_SEC = 1;
 
 type Strip = { kind: "loading" } | { kind: "failed" } | { kind: "ready"; urls: string[] };
 
-/** Thumbnails for one clip, built shortly after it opens and revoked when the clip changes. A failure leaves a plain strip. */
+/** Thumbnails for one clip, built shortly after it opens and revoked when the clip changes. A failure says so in the strip. */
 function useFilmstrip(file: File, info: VideoInfo): Strip {
   const [strip, setStrip] = useState<Strip>({ kind: "loading" });
   useEffect(() => {
@@ -203,7 +204,12 @@ export function Timeline({ file, info }: { file: File; info: VideoInfo }) {
               ))
             ) : strip.kind === "loading" ? (
               <div className="h-full w-full animate-pulse bg-border" />
-            ) : null}
+            ) : (
+              <span className="flex h-full w-full items-center justify-center gap-1.5 text-xs text-muted-foreground">
+                <ImageOff className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                No thumbnails for this video
+              </span>
+            )}
             <div className="absolute inset-y-0 left-0 bg-black/60" style={{ width: `${startPct}%` }} />
             <div className="absolute inset-y-0 right-0 bg-black/60" style={{ width: `${100 - endPct}%` }} />
           </div>

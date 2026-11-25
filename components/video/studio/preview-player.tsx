@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Pause, Play } from "lucide-react";
+import { Pause, Play, VideoOff } from "lucide-react";
 import { Segmented } from "@/components/ui";
 import type { VideoInfo } from "@/lib/video/engines/types";
 import { containSize, drawPreviewFrame, previewCanvasSize, previewFrame, type PreviewFrame } from "@/lib/video/preview-render";
@@ -40,15 +40,15 @@ function StatusPill({ children }: { children: ReactNode }) {
   );
 }
 
-/** Shown when the browser can't play the file and no proxy could be made. Thumbnails arrive with the timeline. */
+/** Shown when the browser can't play the file and no proxy could be made: the edits still export. */
 function NoPlayback() {
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-4 text-center">
-      <div className="flex gap-1" aria-hidden>
-        {Array.from({ length: 6 }, (_, i) => (
-          <div key={i} className="h-10 w-14 rounded-md bg-muted" />
-        ))}
-      </div>
+    <div
+      data-testid="no-playback"
+      className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border p-4 text-center"
+    >
+      <VideoOff className="mb-1 h-8 w-8 text-muted-foreground" aria-hidden />
+      <p className="text-sm font-medium">No preview in this browser</p>
       <p className="max-w-xs text-sm text-muted-foreground">
         This browser can&apos;t play this file, but it can still be converted.
       </p>

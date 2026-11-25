@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { useVideoStore, type QualityState } from "@/store/useVideoStore";
 import { PreviewPlayer } from "./preview-player";
+import { Timeline } from "./timeline";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -60,5 +61,32 @@ describe("PreviewPlayer", () => {
       useVideoStore.setState((s) => ({ quality: { ...s.quality, status: "ready", estimatedBytes: 2_500_000 } }))
     );
     expect(host.textContent).toContain("Estimated size 2.50 MB");
+  });
+});
+
+describe("without playback (the browser can't play the file and no proxy could be made)", () => {
+  test("the preview shows an icon and a short explanation, not placeholder boxes that never fill", async () => {
+    await showPlayer({ enabled: false });
+    const box = host.querySelector('[data-testid="no-playback"]') as HTMLElement;
+    expect(box).not.toBeNull();
+    expect(box.querySelector("svg")).not.toBeNull();
+    expect(box.textContent).toContain("No preview in this browser");
+    expect(box.textContent).toContain("This browser can't play this file, but it can still be converted.");
+    expect(box.querySelectorAll("div:empty")).toHaveLength(0);
+  });
+
+  test("the timeline says it has no thumbnails instead of a bare strip", async () => {
+    const file = new File([new Uint8Array(1000)], "clip.avi", { type: "video/x-msvideo" });
+    const info = { ...INFO, readableByMediabunny: false };
+    useVideoStore.setState((s) => ({
+      load: { kind: "ready", file, info, previewUrl: null, proxy: false },
+      recipe: { ...s.recipe, trim: null },
+    }));
+    await render(createElement(Timeline, { file, info }));
+    const track = host.querySelector('[data-testid="timeline-track"]') as HTMLElement;
+    expect(track.textContent).toContain("No thumbnails for this video");
+    expect(track.querySelector("svg")).not.toBeNull();
+    // The trim handles and the playhead still work on it.
+    expect(host.querySelectorAll('[role="slider"]')).toHaveLength(3);
   });
 });
