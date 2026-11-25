@@ -7,8 +7,29 @@ import {
   TargetTooSmallError,
 } from "@/lib/video/errors";
 import { MAX_TARGET_ATTEMPTS } from "@/lib/video/bitrate";
-import { describeExportError, describeStatus, exportProgress, timeLeft } from "@/lib/video/messages";
+import { checkFastEngine, type DeviceEncoders } from "@/lib/video/engines/webcodecs";
+import type { VideoInfo } from "@/lib/video/engines/types";
+import {
+  describeExportError,
+  describeStatus,
+  describeStudioStatus,
+  exportProgress,
+  fallbackReasonText,
+  timeLeft,
+} from "@/lib/video/messages";
 import { MB } from "@/lib/video/recipe";
+
+const INFO: VideoInfo = {
+  durationSec: 6,
+  startSec: 0,
+  width: 1920,
+  height: 1080,
+  rotation: 0,
+  videoCodec: "avc1",
+  audioCodec: "mp4a",
+  hasAudio: true,
+  readableByMediabunny: true,
+};
 
 describe("exportProgress", () => {
   test("never reaches 100% while the export runs", () => {
@@ -94,5 +115,65 @@ describe("describeStatus", () => {
       "Switching to the backup engine: no codec"
     );
     expect(describeStatus({ phase: "probing" })).toBe("Reading the video…");
+  });
+});
+
+describe("describeStudioStatus", () => {
+  test("plain words for the editor: no codec list, no engine error text", () => {
+    expect(describeStudioStatus({ phase: "probed", info: INFO })).toBe("Checked the video");
+    expect(describeStudioStatus({ phase: "probe-fallback", reason: "Fast engine can't read this file: Unsupported" })).toBe(
+      "Reading the video with the backup engine…"
+    );
+    expect(
+      describeStudioStatus({ phase: "fallback", reason: "EncodingError: Encoder failure (0x80004005)", estimatedSec: 60 })
+    ).toBe("Switching to the backup engine…");
+    expect(
+      describeStudioStatus({ phase: "smaller", width: 1280, height: 720, reason: "This browser can't encode H.264 at 3840×2160." })
+    ).toBe("Lowered to 1280×720 so this device can encode it");
+  });
+  test("keeps the plain lines it shares with the lab", () => {
+    expect(describeStudioStatus({ phase: "probing" })).toBe("Reading the video…");
+    expect(describeStudioStatus({ phase: "encoding", engine: "webcodecs", attempt: 2 })).toBe("Encoding with the fast engine — pass 2");
+  });
+});
+
+describe("fallbackReasonText", () => {
+  const plan = { width: 3840, height: 2160, videoBps: 8_000_000, audioBps: 128_000, steppedDown: false };
+  const encoders = (over: Partial<DeviceEncoders> = {}): DeviceEncoders => ({
+    hasVideoEncoder: () => true,
+    canEncodeVideo: async () => true,
+    canEncodeAudio: async () => true,
+    ...over,
+  });
+  const reasonOf = async (info: VideoInfo, container: "mp4" | "webm", e: DeviceEncoders) => {
+    const check = await checkFastEngine(info, plan, container, e);
+    if (check.ok) throw new Error("expected the fast engine to refuse");
+    return check.reason;
+  };
+
+  test("the fast engine's own refusals become short phrases for the dialog's brackets", async () => {
+    expect(fallbackReasonText(await reasonOf(INFO, "mp4", encoders({ hasVideoEncoder: () => false })))).toBe(
+      "it has no built-in video encoder"
+    );
+    expect(fallbackReasonText(await reasonOf({ ...INFO, readableByMediabunny: false }, "mp4", encoders()))).toBe(
+      "it can't read this file type"
+    );
+    expect(fallbackReasonText(await reasonOf(INFO, "webm", encoders({ canEncodeAudio: async () => false })))).toBe(
+      "it can't encode WebM sound"
+    );
+    expect(fallbackReasonText(await reasonOf(INFO, "mp4", encoders({ canEncodeVideo: async () => false })))).toBe(
+      "it can't encode H.264 at 3840×2160"
+    );
+  });
+
+  test("an engine's error text never reaches the dialog", () => {
+    for (const raw of [
+      "The fast engine can't process this file (video: undecodable_source_codec).",
+      "EncodingError: Encoder failure (0x80004005)",
+      "The fast engine produced no data.",
+      "",
+    ]) {
+      expect(fallbackReasonText(raw)).toBe("it ran into a problem with this video");
+    }
   });
 });

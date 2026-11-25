@@ -2,11 +2,13 @@
 
 import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui";
+import { fallbackReasonText } from "@/lib/video/messages";
 import { useDialogKeys } from "./use-dialog-keys";
 
 /**
  * The slow-engine question. An alert dialog that holds focus until answered; Escape means Cancel.
- * N is the estimated time rounded up to whole minutes ("at least about N min").
+ * N is the estimated time rounded up to whole minutes ("at least about N min"). `reason` is the
+ * engine's own; it shows as a plain phrase (`fallbackReasonText`).
  */
 export function FallbackDialog({
   reason,
@@ -42,7 +44,8 @@ export function FallbackDialog({
           Use the slower engine?
         </h3>
         <p id="fallback-body" className="mt-2 text-sm text-muted-foreground">
-          Your browser can&apos;t do this with the fast engine ({reason}). The backup engine will take at least about {minutes} min.
+          Your browser can&apos;t do this with the fast engine ({fallbackReasonText(reason)}). The backup engine will take at
+          least about {minutes} min.
           Keep this tab open.
         </p>
         <div className="mt-4 flex justify-end gap-2">

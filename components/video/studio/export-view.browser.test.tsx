@@ -133,14 +133,14 @@ const button = (label: string) => Array.from(document.querySelectorAll("button")
 describe("ExportView", () => {
   test("the slow-engine question: alertdialog copy, Continue says yes, Escape and Cancel say no", async () => {
     const answerFallback = vi.fn();
-    showExport(running({ reason: "no H.264 here", estimatedSec: 130 }), { answerFallback });
+    showExport(running({ reason: "This browser can't encode H.264 at 3840×2160.", estimatedSec: 130 }), { answerFallback });
     await render(createElement(ExportView, { onClose: () => {} }));
 
     const dialog = document.querySelector('[role="alertdialog"]') as HTMLElement;
     expect(dialog).not.toBeNull();
     expect(dialog.textContent).toContain("Use the slower engine?");
     expect(dialog.textContent).toContain(
-      "Your browser can't do this with the fast engine (no H.264 here). The backup engine will take at least about 3 min. Keep this tab open."
+      "Your browser can't do this with the fast engine (it can't encode H.264 at 3840×2160). The backup engine will take at least about 3 min. Keep this tab open."
     );
     expect(document.activeElement && dialog.contains(document.activeElement)).toBe(true);
 
@@ -151,6 +151,14 @@ describe("ExportView", () => {
     const cancels = dialog.querySelectorAll("button");
     await act(async () => Array.from(cancels).find((b) => b.textContent === "Cancel")!.click());
     expect(answerFallback).toHaveBeenCalledTimes(3);
+  });
+
+  test("the slow-engine question never shows an engine's own error text", async () => {
+    showExport(running({ reason: "EncodingError: Encoder failure (0x80004005)", estimatedSec: 30 }));
+    await render(createElement(ExportView, { onClose: () => {} }));
+    const dialog = document.querySelector('[role="alertdialog"]') as HTMLElement;
+    expect(dialog.textContent).toContain("(it ran into a problem with this video)");
+    expect(dialog.textContent).not.toContain("EncodingError");
   });
 
   test("done: result video, size line, Download link and Edit again", async () => {

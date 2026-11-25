@@ -46,15 +46,41 @@ const ENGINE_DOWNLOAD_MB = "~32";
  */
 export function describeStudioStatus(s: ExportStatus): string {
   switch (s.phase) {
+    case "probed":
+      return "Checked the video";
     case "loading-engine": {
       const total = s.totalBytes ? (s.totalBytes / MB).toFixed(1) : ENGINE_DOWNLOAD_MB;
       return `Downloading the video engine… ${(s.loadedBytes / MB).toFixed(1)} of ${total} MB`;
     }
+    case "smaller":
+      return `Lowered to ${s.width}×${s.height} so this device can encode it`;
     case "probe-fallback":
       return "Reading the video with the backup engine…";
+    case "fallback":
+      return "Switching to the backup engine…";
     default:
       return describeStatus(s);
   }
+}
+
+/** The fast engine's refusals (`checkFastEngine`) as phrases; anything else is an engine's own error text. */
+const FALLBACK_REASONS: [RegExp, (m: RegExpMatchArray) => string][] = [
+  [/^This browser has no built-in video encoder\.$/, () => "it has no built-in video encoder"],
+  [/^The fast engine can't read this file type\.$/, () => "it can't read this file type"],
+  [/^This browser can't encode Opus audio for WebM\.$/, () => "it can't encode WebM sound"],
+  [/^This browser can't encode (H\.264|VP9) at (\d+×\d+)\.$/, (m) => `it can't encode ${m[1]} at ${m[2]}`],
+];
+
+/**
+ * Why the fast engine can't do it, for the slow-engine question's brackets ("Your browser can't do
+ * this with the fast engine (…)"). Engine error text stays in the lab; it reads as a plain phrase.
+ */
+export function fallbackReasonText(reason: string): string {
+  for (const [pattern, phrase] of FALLBACK_REASONS) {
+    const m = reason.match(pattern);
+    if (m) return phrase(m);
+  }
+  return "it ran into a problem with this video";
 }
 
 /**
