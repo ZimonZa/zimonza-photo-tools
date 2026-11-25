@@ -79,13 +79,13 @@ describe("useExportGuards", () => {
   });
 
   test("the tab returning while the lock is still being asked for asks only once, so no lock is left behind", async () => {
-    let grant!: (s: { released: boolean; release: () => Promise<void> }) => void;
     const sentinel = {
       released: false,
       release: vi.fn(async () => {
         sentinel.released = true;
       }),
     };
+    let grant!: (s: typeof sentinel) => void;
     const request = vi.fn(() => new Promise<typeof sentinel>((r) => (grant = r)));
     Object.defineProperty(navigator, "wakeLock", { value: { request }, configurable: true });
     await render(createElement(Guard, { running: true }));
