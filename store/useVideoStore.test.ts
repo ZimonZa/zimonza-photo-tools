@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { createJobQueue } from "@/lib/video/engines/job-queue";
 import type { VideoInfo } from "@/lib/video/engines/types";
 import { ExportCanceledError, TargetNotReachedError } from "@/lib/video/errors";
 import type { ExportOptions, ExportResult, SamplePreview } from "@/lib/video/export";
 import { MB, type EditRecipe } from "@/lib/video/recipe";
-import { createVideoStore, QUALITY_DEBOUNCE_MS, type VideoStoreDeps } from "@/store/useVideoStore";
+import { createVideoStore, QUALITY_DEBOUNCE_MS, type ProbeStatus, type VideoStoreDeps } from "@/store/useVideoStore";
 
 const INFO: VideoInfo = {
   durationSec: 60,
@@ -471,6 +472,84 @@ describe("export", () => {
     store.getState().closeResult();
     expect(revoked).toContain(s.url);
     expect(store.getState().exportState.kind).toBe("idle");
+  });
+});
+
+describe("opening a file the fast reader can't read", () => {
+  const download = (loadedBytes: number, totalBytes: number | null): ProbeStatus => ({
+    phase: "loading-engine",
+    engine: "ffmpeg",
+    loadedBytes,
+    totalBytes,
+  });
+
+  test("the loading screen says the backup reader is used, then shows its download", async () => {
+    const slow = deferred<VideoInfo>();
+    let report!: (s: ProbeStatus) => void;
+    const { deps } = makeDeps({
+      probe: vi.fn((_f: File, onStatus: (s: ProbeStatus) => void) => {
+        report = onStatus;
+        return slow.promise;
+      }),
+    });
+    const store = createVideoStore(deps);
+    const opening = store.getState().openFile(file("a.avi"));
+    expect(store.getState().load).toMatchObject({ kind: "probing", statusText: null });
+    report({ phase: "probe-fallback", reason: "Fast engine can't read this file: Unsupported container" });
+    expect(store.getState().load).toMatchObject({ kind: "probing", statusText: "Reading the video with the backup engine…" });
+    report(download(3_200_000, 32_000_000));
+    expect(store.getState().load).toMatchObject({
+      kind: "probing",
+      statusText: "Downloading the video engine… 3.2 of 32.0 MB",
+    });
+    report(download(1_000_000, null));
+    expect(store.getState().load).toMatchObject({ statusText: "Downloading the video engine… 1.0 of ~32 MB" });
+    slow.resolve(INFO);
+    await opening;
+    expect(store.getState().load.kind).toBe("ready");
+  });
+
+  test("re-opening during a slow probe: one probe at a time, and the old probe's progress and result are ignored", async () => {
+    // The real engine runs one ffmpeg job at a time; the fake probe does the same with the same queue.
+    const queue = createJobQueue();
+    const gates = [deferred<VideoInfo>(), deferred<VideoInfo>()];
+    const reports: ((s: ProbeStatus) => void)[] = [];
+    const log: string[] = [];
+    const probe = vi.fn((f: File, onStatus: (s: ProbeStatus) => void) => {
+      const i = reports.push(onStatus) - 1;
+      return queue(async () => {
+        log.push(`start ${f.name}`);
+        const info = await gates[i].promise;
+        log.push(`end ${f.name}`);
+        return info;
+      });
+    });
+    const { deps } = makeDeps({ probe });
+    const store = createVideoStore(deps);
+    const first = store.getState().openFile(file("a.avi"));
+    await vi.advanceTimersByTimeAsync(0);
+    reports[0](download(5_000_000, 32_000_000));
+    store.getState().reset(); // Cancel on the loading screen
+    const second = store.getState().openFile(file("b.avi"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(log).toEqual(["start a.avi"]);
+
+    // The old probe's progress never reaches the new file's screen; the new one's does.
+    reports[0](download(9_000_000, 32_000_000));
+    expect(store.getState().load).toMatchObject({ kind: "probing", file: { name: "b.avi" }, statusText: null });
+    reports[1](download(9_000_000, 32_000_000));
+    expect(store.getState().load).toMatchObject({ statusText: "Downloading the video engine… 9.0 of 32.0 MB" });
+
+    gates[0].resolve({ ...INFO, durationSec: 1 });
+    await first;
+    await vi.advanceTimersByTimeAsync(0);
+    expect(log).toEqual(["start a.avi", "end a.avi", "start b.avi"]);
+    expect(store.getState().load).toMatchObject({ kind: "probing", file: { name: "b.avi" } });
+
+    gates[1].resolve({ ...INFO, durationSec: 2 });
+    await second;
+    const s = store.getState().load;
+    expect(s.kind === "ready" && [s.file.name, s.info.durationSec]).toEqual(["b.avi", 2]);
   });
 });
 

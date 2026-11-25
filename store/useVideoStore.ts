@@ -2,10 +2,10 @@ import { create, type StoreApi, type UseBoundStore } from "zustand";
 import type { VideoInfo } from "@/lib/video/engines/types";
 import { isMobileDevice } from "@/lib/video/estimate";
 import { remapCrop } from "@/lib/video/frame";
-import { describeExportError, describeStatus } from "@/lib/video/messages";
+import { describeExportError, describeStatus, describeStudioStatus } from "@/lib/video/messages";
 import { applyPreset, VIDEO_PRESETS, type PresetId } from "@/lib/video/presets";
 import { BASE_RECIPE, type EditRecipe } from "@/lib/video/recipe";
-import type { ExportOptions, ExportResult, SamplePreview } from "@/lib/video/export";
+import type { ExportOptions, ExportResult, ExportStatus, SamplePreview } from "@/lib/video/export";
 
 /** Quiet time after the last edit before a quality sample starts. */
 export const QUALITY_DEBOUNCE_MS = 1000;
@@ -14,9 +14,13 @@ const DEFAULT_TARGET_MB = 10;
 
 export type ToolId = "trim" | "crop" | "size" | "rotate" | "sound";
 
+/** What a probe reports while it reads a file the fast reader can't: the switch to ffmpeg's reader and its download. */
+export type ProbeStatus = Extract<ExportStatus, { phase: "probe-fallback" | "loading-engine" }>;
+
 export type LoadState =
   | { kind: "empty" }
-  | { kind: "probing"; file: File }
+  /** `statusText` replaces "Reading the video…" while the backup reader is used (and downloaded). */
+  | { kind: "probing"; file: File; statusText: string | null }
   | { kind: "preparing-preview"; file: File; info: VideoInfo }
   | { kind: "ready"; file: File; info: VideoInfo; previewUrl: string | null; proxy: boolean }
   | { kind: "error"; file: File; message: string };
@@ -51,7 +55,8 @@ export interface SeekRequest {
 }
 
 export interface VideoStoreDeps {
-  probe(file: File): Promise<VideoInfo>;
+  /** Read the file's details; says when it falls back to ffmpeg's reader and how that one's download goes. */
+  probe(file: File, onStatus: (s: ProbeStatus) => void): Promise<VideoInfo>;
   canPlay(file: File): Promise<boolean>;
   makeProxy(file: File, info: VideoInfo, signal: AbortSignal): Promise<Blob | null>;
   exportVideo(recipe: EditRecipe, options: ExportOptions): Promise<ExportResult>;
@@ -107,7 +112,11 @@ export interface VideoState {
 
 /** Real engines; export.ts pulls in the encoders, so it is only imported when an export or sample runs. */
 export const defaultDeps: VideoStoreDeps = {
-  probe: async (file) => (await import("@/lib/video/export")).probeVideo(file),
+  probe: async (file, onStatus) =>
+    (await import("@/lib/video/export")).probeVideo(file, {
+      onFallback: (reason) => onStatus({ phase: "probe-fallback", reason }),
+      onEngineDownload: (loadedBytes, totalBytes) => onStatus({ phase: "loading-engine", engine: "ffmpeg", loadedBytes, totalBytes }),
+    }),
   canPlay: async (file) => (await import("@/lib/video/playback")).canPlayNatively(file),
   makeProxy: async (file, info, signal) => (await import("@/lib/video/playback")).makePreviewProxy(file, info, signal),
   exportVideo: async (recipe, options) => (await import("@/lib/video/export")).exportVideo(recipe, options),
@@ -254,10 +263,18 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
       async openFile(file) {
         releaseClip();
         const run = loadRun;
-        set({ ...clipDefaults(), load: { kind: "probing", file }, quality: initialQuality(get().quality.enabled, get().quality.mode) });
+        set({
+          ...clipDefaults(),
+          load: { kind: "probing", file, statusText: null },
+          quality: initialQuality(get().quality.enabled, get().quality.mode),
+        });
+        // A probe can't be stopped; one that was superseded (Cancel, another file) still reports, unheard.
+        const onStatus = (status: ProbeStatus) => {
+          if (run === loadRun) set({ load: { kind: "probing", file, statusText: describeStudioStatus(status) } });
+        };
         let info: VideoInfo;
         try {
-          info = await deps.probe(file);
+          info = await deps.probe(file, onStatus);
         } catch (e) {
           if (run === loadRun) set({ load: { kind: "error", file, message: describeProbeError(e) } });
           return;

@@ -34,12 +34,12 @@ export function VideoStudio() {
     );
   }
   if (load.kind === "probing" || load.kind === "preparing-preview") {
-    // Either can take a while (the backup reader's download, a proxy for a file the browser can't play).
+    // Either can take a while (the backup reader and its one-time download, a proxy for a file the browser can't play).
     return (
       <div className="mx-auto flex max-w-4xl flex-col items-center gap-5 px-4 py-24 text-center">
-        <p role="status" className="flex items-center gap-2 text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin text-accent" aria-hidden />
-          {load.kind === "probing" ? "Reading the video…" : "Preparing preview…"}
+        <p role="status" className="flex items-center gap-2 tabular-nums text-muted-foreground">
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent" aria-hidden />
+          {load.kind === "probing" ? (load.statusText ?? "Reading the video…") : "Preparing preview…"}
         </p>
         <button
           type="button"

@@ -37,6 +37,26 @@ export function describeStatus(s: ExportStatus): string {
   }
 }
 
+/** Size of the backup engine's one-time download, for when the server doesn't say. */
+const ENGINE_DOWNLOAD_MB = "~32";
+
+/**
+ * Status copy for the editor (the lab keeps `describeStatus`'s detail): plain words, never an
+ * engine's own error text.
+ */
+export function describeStudioStatus(s: ExportStatus): string {
+  switch (s.phase) {
+    case "loading-engine": {
+      const total = s.totalBytes ? (s.totalBytes / MB).toFixed(1) : ENGINE_DOWNLOAD_MB;
+      return `Downloading the video engine… ${(s.loadedBytes / MB).toFixed(1)} of ${total} MB`;
+    }
+    case "probe-fallback":
+      return "Reading the video with the backup engine…";
+    default:
+      return describeStatus(s);
+  }
+}
+
 /**
  * The running export's bar. `progress` is the current pass's (0..1); the percent stops at 99 because
  * the file isn't ready until the export ends. A target size can take up to MAX_TARGET_ATTEMPTS
