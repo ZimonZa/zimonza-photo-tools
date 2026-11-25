@@ -35,6 +35,8 @@ export interface FrameEdits {
 const MIN_CROP_SIDE = 16;
 /** Smallest output side we encode, in px. */
 const MIN_OUTPUT_SIDE = 16;
+/** Largest side a Custom output size may be typed with, in px. */
+export const MAX_CUSTOM_SIDE = 4096;
 /** Aspect ratios this close count as the same shape. */
 const SAME_SHAPE_TOLERANCE = 0.01;
 
@@ -55,6 +57,19 @@ export function clampCrop(crop: CropRect | null, within: Size): CropRect | null 
   if (width < MIN_CROP_SIDE || height < MIN_CROP_SIDE) return null;
   if (left === 0 && top === 0 && width === within.width && height === within.height) return null;
   return { left, top, width, height };
+}
+
+/**
+ * A side typed for a Custom output size: whole px from 16 to 4096 (rounded), or what is wrong with
+ * it. Empty or not a number counts as too small.
+ */
+export function checkCustomSide(text: string): { px: number } | { problem: "too-small" | "too-big" } {
+  const t = text.trim();
+  const n = Number(t);
+  if (t === "" || Number.isNaN(n)) return { problem: "too-small" };
+  if (n > MAX_CUSTOM_SIDE) return { problem: "too-big" };
+  const px = Math.round(n);
+  return px >= MIN_OUTPUT_SIDE ? { px } : { problem: "too-small" };
 }
 
 /** An output size an engine can encode: finite and at least 16 px a side. */

@@ -298,6 +298,15 @@ test("Custom 0×100 shows the size message inline and in the estimate line", asy
   await expect(estimate(page)).toContainText("200×100");
   await expect(panel.getByRole("button", { name: "Crop to fill" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "Export", exact: true })).toBeEnabled();
+
+  // Over 4096 px a side: its own message, in both places, and Export off again.
+  const tooBig = "That output size is too big. Use at most 4096 × 4096 pixels.";
+  await width.fill("5000");
+  await expect(panel.getByText(tooBig)).toBeVisible();
+  await expect(estimate(page)).toContainText(tooBig);
+  await expect(page.getByRole("button", { name: "Export", exact: true })).toBeDisabled();
+  await width.fill("4096");
+  await expect(estimate(page)).toContainText("4096×100");
 });
 
 test("Sound Off shows the No sound badge; On removes it", async ({ page }, info) => {

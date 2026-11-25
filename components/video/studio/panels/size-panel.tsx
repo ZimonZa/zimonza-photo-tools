@@ -4,10 +4,9 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Lock, LockOpen } from "lucide-react";
 import { FieldGroup, Segmented, Slider } from "@/components/ui";
 import type { VideoInfo } from "@/lib/video/engines/types";
-import { InvalidSizeError } from "@/lib/video/errors";
-import { resolveFrame, type FitMode, type OutputFrame } from "@/lib/video/frame";
+import { checkCustomSide, resolveFrame, type FitMode, type OutputFrame } from "@/lib/video/frame";
 import { displaySize, type Size } from "@/lib/video/geometry";
-import { describeExportError } from "@/lib/video/messages";
+import { customSizeError } from "@/lib/video/messages";
 import { cn } from "@/lib/utils";
 import { useVideoStore, type RecipeEdits } from "@/store/useVideoStore";
 
@@ -43,15 +42,12 @@ const FITS: { value: FitMode; label: string }[] = [
   { value: "blur", label: "Blurred background" },
 ];
 
-const MIN_SIDE = 16;
 const DEFAULT_PERCENT = 50;
-const SIZE_MESSAGE = describeExportError(new InvalidSizeError(), null)?.message ?? "";
 
-/** A typed side in px, or null when it isn't a number of at least 16. */
+/** A typed side in px, or null when it isn't a number from 16 to 4096. */
 function parseSide(text: string): number | null {
-  const t = text.trim();
-  const n = Number(t);
-  return t !== "" && Number.isFinite(n) && n >= MIN_SIDE ? Math.round(n) : null;
+  const c = checkCustomSide(text);
+  return "px" in c ? c.px : null;
 }
 
 const isPresetSize = (f: OutputFrame) =>
@@ -99,9 +95,9 @@ function SideField({ label, value, invalid, onChange }: { label: string; value: 
 }
 
 /**
- * Width × height as typed. Locked, the other side follows the cropped picture's shape. A size that
- * can't be encoded stays in the fields with the size message and never reaches the recipe; the
- * store holds the message so the estimate line (and Export) show it too.
+ * Width × height as typed, 16 to 4096 px a side. Locked, the other side follows the cropped
+ * picture's shape. A size outside that stays in the fields with its message and never reaches the
+ * recipe; the store holds the message so the estimate line (and Export) show it too.
  */
 function CustomSize({ frame, picture, onFrame }: { frame: ExactFrame; picture: Size; onFrame(f: ExactFrame): void }) {
   const setSizeDraftError = useVideoStore((s) => s.setSizeDraftError);
@@ -130,7 +126,7 @@ function CustomSize({ frame, picture, onFrame }: { frame: ExactFrame; picture: S
       onFrame({ ...frame, width, height });
     } else {
       setDraft({ w: nextW, h: nextH });
-      setSizeDraftError(SIZE_MESSAGE);
+      setSizeDraftError(customSizeError(nextW, nextH));
     }
   };
 
@@ -155,7 +151,7 @@ function CustomSize({ frame, picture, onFrame }: { frame: ExactFrame; picture: S
       </div>
       {draft !== null && (
         <p role="alert" className="text-xs text-amber-500">
-          {SIZE_MESSAGE}
+          {customSizeError(w, h)}
         </p>
       )}
     </div>

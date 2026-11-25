@@ -10,6 +10,7 @@ import { MAX_TARGET_ATTEMPTS } from "@/lib/video/bitrate";
 import { checkFastEngine, type DeviceEncoders } from "@/lib/video/engines/webcodecs";
 import type { VideoInfo } from "@/lib/video/engines/types";
 import {
+  customSizeError,
   describeExportError,
   describeStatus,
   describeStudioStatus,
@@ -175,5 +176,22 @@ describe("fallbackReasonText", () => {
     ]) {
       expect(fallbackReasonText(raw)).toBe("it ran into a problem with this video");
     }
+  });
+});
+
+describe("customSizeError", () => {
+  test("null when both typed sides can be used", () => {
+    expect(customSizeError("1920", "1080")).toBeNull();
+    expect(customSizeError("4096", "16")).toBeNull();
+  });
+  test("too big: a clear message with the 4096 px limit", () => {
+    expect(customSizeError("5000", "1080")).toBe("That output size is too big. Use at most 4096 × 4096 pixels.");
+    expect(customSizeError("1080", "8192")).toBe("That output size is too big. Use at most 4096 × 4096 pixels.");
+  });
+  test("too small (or not a number) says so, also when the other side is too big", () => {
+    const small = "That output size is too small. Use at least 16 × 16 pixels.";
+    expect(customSizeError("0", "100")).toBe(small);
+    expect(customSizeError("", "100")).toBe(small);
+    expect(customSizeError("10", "5000")).toBe(small);
   });
 });

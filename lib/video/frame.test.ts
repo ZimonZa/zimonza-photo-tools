@@ -1,6 +1,14 @@
 import { describe, expect, test } from "vitest";
 import { InvalidSizeError } from "@/lib/video/errors";
-import { clampCrop, mediabunnyTransform, mirrorCropH, remapCrop, resolveFrame } from "@/lib/video/frame";
+import {
+  MAX_CUSTOM_SIDE,
+  checkCustomSide,
+  clampCrop,
+  mediabunnyTransform,
+  mirrorCropH,
+  remapCrop,
+  resolveFrame,
+} from "@/lib/video/frame";
 
 describe("clampCrop", () => {
   test("clips to the picture and snaps to even numbers", () => {
@@ -136,5 +144,23 @@ describe("remapCrop", () => {
   });
   test("same orientation changes nothing", () => {
     expect(remapCrop(C, D, O0, O0)).toEqual(C);
+  });
+});
+
+describe("checkCustomSide", () => {
+  test("a typed side from 16 to 4096 px, rounded to whole px", () => {
+    expect(MAX_CUSTOM_SIDE).toBe(4096);
+    expect(checkCustomSide("16")).toEqual({ px: 16 });
+    expect(checkCustomSide(" 1080 ")).toEqual({ px: 1080 });
+    expect(checkCustomSide("4096")).toEqual({ px: 4096 });
+    expect(checkCustomSide("719.6")).toEqual({ px: 720 });
+  });
+  test("larger than 4096 px is too big", () => {
+    expect(checkCustomSide("4097")).toEqual({ problem: "too-big" });
+    expect(checkCustomSide("100000")).toEqual({ problem: "too-big" });
+    expect(checkCustomSide("Infinity")).toEqual({ problem: "too-big" });
+  });
+  test("under 16 px, empty or not a number is too small", () => {
+    for (const t of ["15", "0", "-20", "", "  ", "abc", "NaN"]) expect(checkCustomSide(t), t).toEqual({ problem: "too-small" });
   });
 });
