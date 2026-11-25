@@ -31,16 +31,15 @@ export interface FrameEdits {
   fit: FitMode | null;
 }
 
-/** Smallest crop side we keep, in px. */
-const MIN_CROP_SIDE = 16;
-/** Smallest output side we encode, in px. */
-const MIN_OUTPUT_SIDE = 16;
+/** Smallest side, in px, of a crop we keep and of an output we encode. The one place this limit lives. */
+export const MIN_SIDE = 16;
 /** Largest side a Custom output size may be typed with, in px. */
 export const MAX_CUSTOM_SIDE = 4096;
 /** Aspect ratios this close count as the same shape. */
 const SAME_SHAPE_TOLERANCE = 0.01;
 
-const floorEven = (n: number) => Math.floor(n / 2) * 2;
+/** Round down to an even number of px (encoders want even sides). */
+export const floorEven = (n: number) => Math.floor(n / 2) * 2;
 
 /**
  * Clip a crop to the picture and snap it to even numbers.
@@ -54,7 +53,7 @@ export function clampCrop(crop: CropRect | null, within: Size): CropRect | null 
   const top = floorEven(Math.max(0, crop.top));
   const width = floorEven(Math.min(within.width, crop.left + crop.width) - left);
   const height = floorEven(Math.min(within.height, crop.top + crop.height) - top);
-  if (width < MIN_CROP_SIDE || height < MIN_CROP_SIDE) return null;
+  if (width < MIN_SIDE || height < MIN_SIDE) return null;
   if (left === 0 && top === 0 && width === within.width && height === within.height) return null;
   return { left, top, width, height };
 }
@@ -69,12 +68,12 @@ export function checkCustomSide(text: string): { px: number } | { problem: "too-
   if (t === "" || Number.isNaN(n)) return { problem: "too-small" };
   if (n > MAX_CUSTOM_SIDE) return { problem: "too-big" };
   const px = Math.round(n);
-  return px >= MIN_OUTPUT_SIDE ? { px } : { problem: "too-small" };
+  return px >= MIN_SIDE ? { px } : { problem: "too-small" };
 }
 
 /** An output size an engine can encode: finite and at least 16 px a side. */
 function checkedOutput(size: Size): Size {
-  const ok = (side: number) => Number.isFinite(side) && side >= MIN_OUTPUT_SIDE;
+  const ok = (side: number) => Number.isFinite(side) && side >= MIN_SIDE;
   if (!ok(size.width) || !ok(size.height)) throw new InvalidSizeError();
   return size;
 }

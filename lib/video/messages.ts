@@ -8,13 +8,13 @@ import {
   TargetTooSmallError,
 } from "@/lib/video/errors";
 import { MAX_TARGET_ATTEMPTS } from "@/lib/video/bitrate";
-import { MAX_CUSTOM_SIDE, checkCustomSide } from "@/lib/video/frame";
+import { MAX_CUSTOM_SIDE, MIN_SIDE, checkCustomSide } from "@/lib/video/frame";
 import type { ExportStatus } from "@/lib/video/export";
 import { MB } from "@/lib/video/recipe";
 
 const mb = (bytes: number) => `${(bytes / MB).toFixed(2)} MB`;
 
-const SIZE_TOO_SMALL = "That output size is too small. Use at least 16 × 16 pixels.";
+const SIZE_TOO_SMALL = `That output size is too small. Use at least ${MIN_SIDE} × ${MIN_SIDE} pixels.`;
 const SIZE_TOO_BIG = `That output size is too big. Use at most ${MAX_CUSTOM_SIDE} × ${MAX_CUSTOM_SIDE} pixels.`;
 
 /** Why a typed Custom width × height can't be used (too small wins), or null when both sides can. */

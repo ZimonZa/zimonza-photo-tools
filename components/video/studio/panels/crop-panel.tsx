@@ -5,7 +5,6 @@ import { Eraser } from "lucide-react";
 import { Button, FieldGroup, Slider } from "@/components/ui";
 import {
   CROP_ASPECTS,
-  MIN_FREE_SIDE,
   centredBox,
   centredCrop,
   exactZoom,
@@ -13,6 +12,7 @@ import {
   sameCrop,
   type CropAspectId,
 } from "@/lib/video/crop-view";
+import { MIN_SIDE } from "@/lib/video/frame";
 import type { Size } from "@/lib/video/geometry";
 import { cn } from "@/lib/utils";
 import { useVideoStore } from "@/store/useVideoStore";
@@ -59,7 +59,7 @@ function FreeSize({ picture, current, onSet }: { picture: Size; current: Size; o
   const w = draft?.w ?? String(current.width);
   const h = draft?.h ?? String(current.height);
   const size = parseFreeSize(w, h, picture);
-  const min = String(MIN_FREE_SIDE);
+  const min = String(MIN_SIDE);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -89,7 +89,7 @@ function FreeSize({ picture, current, onSet }: { picture: Size; current: Size; o
       </div>
       {draft !== null && size === null && (
         <p role="alert" className="text-xs text-amber-700 dark:text-amber-500">
-          Use whole numbers: width {MIN_FREE_SIDE}–{picture.width} px, height {MIN_FREE_SIDE}–{picture.height} px.
+          Use whole numbers: width {MIN_SIDE}–{picture.width} px, height {MIN_SIDE}–{picture.height} px.
         </p>
       )}
       <Button type="submit" className="w-full" disabled={draft === null || size === null}>

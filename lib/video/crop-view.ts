@@ -3,7 +3,7 @@
  * not flipped, and may play a smaller proxy) and the recipe's crop (clip display px after the
  * user's turn and flips).
  */
-import { clampCrop, mirrorCropH, type CropRect, type Orientation } from "@/lib/video/frame";
+import { MIN_SIDE, clampCrop, floorEven, mirrorCropH, type CropRect, type Orientation } from "@/lib/video/frame";
 import { displaySize, type Size } from "@/lib/video/geometry";
 
 /** An area as react-easy-crop reports it: pixels, or percent of the turned media. */
@@ -28,8 +28,6 @@ export const CROP_ASPECTS: { id: CropAspectId; label: string; ratio: number | nu
 
 /** Ratios this close count as the same chip. */
 const SAME_RATIO = 0.01;
-
-const floorEven = (n: number) => Math.floor(n / 2) * 2;
 
 function mirrorFlips(crop: CropRect, picture: Size, o: Orientation): CropRect {
   let c = crop;
@@ -96,9 +94,6 @@ export function chipForCrop(crop: CropRect | null): CropAspectId {
   return chip?.id ?? "free";
 }
 
-/** Smallest Free crop side, in px (the same floor as `clampCrop`). */
-export const MIN_FREE_SIDE = 16;
-
 /**
  * A Free crop size typed as text, in px of the turned picture: whole numbers from 16 up to the
  * picture's own sides. Null when either side isn't.
@@ -108,7 +103,7 @@ export function parseFreeSize(width: string, height: string, picture: Size): Siz
     const t = text.trim();
     if (!/^\d+$/.test(t)) return null;
     const n = Number(t);
-    return n >= MIN_FREE_SIDE && n <= max ? n : null;
+    return n >= MIN_SIDE && n <= max ? n : null;
   };
   const w = side(width, picture.width);
   const h = side(height, picture.height);
