@@ -5,7 +5,14 @@ import { remapCrop } from "@/lib/video/frame";
 import { describeExportError, describeStudioStatus } from "@/lib/video/messages";
 import { applyPreset, VIDEO_PRESETS, type PresetId } from "@/lib/video/presets";
 import { BASE_RECIPE, MB, type EditRecipe } from "@/lib/video/recipe";
-import type { ExportOptions, ExportResult, ExportStatus, SamplePreview } from "@/lib/video/export";
+import type {
+  ExportOptions,
+  ExportResult,
+  ExportStatus,
+  FallbackAnswer,
+  FallbackQuestion,
+  SamplePreview,
+} from "@/lib/video/export";
 
 /** Quiet time after the last edit before a quality sample starts. */
 export const QUALITY_DEBOUNCE_MS = 1000;
@@ -40,7 +47,8 @@ export type ExportState =
        * after an engine download it waited for. The time-left guess divides this pass's time only.
        */
       passStartedAt: number;
-      confirm: { reason: string; estimatedSec: number } | null;
+      /** The slow-engine question while it waits for an answer (with `mp4Instead` when MP4 is offered). */
+      confirm: FallbackQuestion | null;
     }
   | { kind: "done"; result: ExportResult; url: string }
   | { kind: "error"; message: string; hint?: string };
@@ -123,7 +131,11 @@ export interface VideoState {
   setPreviewSuspended(on: boolean): void;
   startExport(): Promise<void>;
   cancelExport(): void;
-  answerFallback(ok: boolean): void;
+  /**
+   * Answer the slow-engine question. "mp4" (offered for WebM the fast engine can't make) also turns
+   * the recipe MP4, so the editor shows what is being made and a re-export doesn't ask again.
+   */
+  answerFallback(answer: FallbackAnswer): void;
   closeResult(): void;
 }
 
@@ -168,7 +180,7 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
   let proxyAbort: AbortController | null = null;
   let exportAbort: AbortController | null = null;
   let exportRun = 0;
-  let fallbackResolve: ((ok: boolean) => void) | null = null;
+  let fallbackResolve: ((answer: FallbackAnswer) => void) | null = null;
   let seekId = 0;
   let previewSuspended = false;
 
@@ -245,7 +257,7 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
       loadRun++;
       // Cancel a running export: answer an open question "no", abort, and make its late results stale.
       exportRun++;
-      fallbackResolve?.(false);
+      fallbackResolve?.("cancel");
       fallbackResolve = null;
       exportAbort?.abort();
       exportAbort = null;
@@ -455,9 +467,9 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
               patchRunning({ statusText, attempt: status.attempt, progress: 0, passStartedAt: deps.now() });
             },
             confirmFallback: (confirm) =>
-              new Promise<boolean>((resolve) => {
-                if (run !== exportRun) return resolve(false);
-                fallbackResolve?.(false);
+              new Promise<FallbackAnswer>((resolve) => {
+                if (run !== exportRun) return resolve("cancel");
+                fallbackResolve?.("cancel");
                 fallbackResolve = resolve;
                 patchRunning({ confirm });
               }),
@@ -475,7 +487,7 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
           });
         } finally {
           if (run === exportRun) {
-            fallbackResolve?.(false);
+            fallbackResolve?.("cancel");
             fallbackResolve = null;
             exportAbort = null;
           }
@@ -484,16 +496,19 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
       },
 
       cancelExport() {
-        get().answerFallback(false);
+        get().answerFallback("cancel");
         exportAbort?.abort();
       },
 
-      answerFallback(ok) {
+      answerFallback(answer) {
         const resolve = fallbackResolve;
         if (!resolve) return;
         fallbackResolve = null;
-        set((s) => (s.exportState.kind === "running" ? { exportState: { ...s.exportState, confirm: null } } : s));
-        resolve(ok);
+        set((s) => ({
+          ...(answer === "mp4" ? { recipe: { ...s.recipe, container: "mp4" as const } } : {}),
+          ...(s.exportState.kind === "running" ? { exportState: { ...s.exportState, confirm: null } } : {}),
+        }));
+        resolve(answer);
       },
 
       closeResult() {

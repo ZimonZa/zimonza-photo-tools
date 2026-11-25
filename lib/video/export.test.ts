@@ -14,6 +14,7 @@ import {
   previewSample,
   sampleWindow,
   type ExportDeps,
+  type ExportOptions,
   type ExportStatus,
 } from "@/lib/video/export";
 import { BASE_RECIPE, MB, type EditRecipe } from "@/lib/video/recipe";
@@ -149,7 +150,7 @@ describe("backup engine policies", () => {
   test("declining the backup engine cancels", async () => {
     const wc = fakeEngine("webcodecs", { precheck: { ok: false, reason: "no encoder" } });
     const ff = fakeEngine("ffmpeg");
-    await expect(exportVideo(recipe(), { confirmFallback: async () => false }, deps(wc, ff))).rejects.toBeInstanceOf(
+    await expect(exportVideo(recipe(), { confirmFallback: async () => "cancel" }, deps(wc, ff))).rejects.toBeInstanceOf(
       ExportCanceledError
     );
     expect(ff.jobs).toHaveLength(0);
@@ -163,7 +164,7 @@ describe("backup engine policies", () => {
       {
         confirmFallback: async (f) => {
           asked.push(f);
-          return true;
+          return "continue";
         },
       },
       deps(wc, fakeEngine("ffmpeg"))
@@ -179,12 +180,112 @@ describe("backup engine policies", () => {
         engine: "ffmpeg",
         confirmFallback: async () => {
           asked = true;
-          return true;
+          return "continue";
         },
       },
       deps(fakeEngine("webcodecs"), fakeEngine("ffmpeg"))
     );
     expect(asked).toBe(false);
+  });
+});
+
+describe("WebM the fast engine can't make, when MP4 it can (W1)", () => {
+  const OPUS = "This browser can't encode Opus audio for WebM.";
+  /** A fast engine that encodes MP4 but not WebM, like most iPhones. */
+  const noWebm = (): FakeEngine => {
+    const e = fakeEngine("webcodecs");
+    e.precheck = async (_i, _p, container) => (container === "webm" ? { ok: false, reason: OPUS } : { ok: true });
+    return e;
+  };
+  type Question = Parameters<NonNullable<ExportOptions["confirmFallback"]>>[0];
+
+  test("the question offers MP4; answering mp4 exports MP4 on the fast engine with the same plan", async () => {
+    const wc = noWebm();
+    const ff = fakeEngine("ffmpeg");
+    const asked: Question[] = [];
+    const statuses: ExportStatus[] = [];
+    const result = await exportVideo(
+      recipe({ container: "webm" }),
+      {
+        onStatus: (s) => statuses.push(s),
+        confirmFallback: async (q) => {
+          asked.push(q);
+          return "mp4";
+        },
+      },
+      deps(wc, ff)
+    );
+    expect(asked).toEqual([{ reason: OPUS, estimatedSec: 675, mp4Instead: true }]);
+    expect(result).toMatchObject({ engine: "webcodecs", fileName: "Trip-zimonza.mp4", width: 1920, height: 1080 });
+    expect(wc.jobs).toHaveLength(1);
+    expect(wc.jobs[0].container).toBe("mp4");
+    expect(ff.jobs).toHaveLength(0);
+    expect(statuses).toContainEqual({ phase: "encoding", engine: "webcodecs", attempt: 1 });
+  });
+
+  test("answering continue makes WebM on the backup engine, as before", async () => {
+    const wc = noWebm();
+    const ff = fakeEngine("ffmpeg");
+    const result = await exportVideo(recipe({ container: "webm" }), { confirmFallback: async () => "continue" }, deps(wc, ff));
+    expect(result).toMatchObject({ engine: "ffmpeg", fileName: "Trip-zimonza.webm" });
+    expect(ff.jobs[0].container).toBe("webm");
+    expect(wc.jobs).toHaveLength(0);
+  });
+
+  test("answering cancel cancels, with nothing encoded", async () => {
+    const wc = noWebm();
+    const ff = fakeEngine("ffmpeg");
+    await expect(
+      exportVideo(recipe({ container: "webm" }), { confirmFallback: async () => "cancel" }, deps(wc, ff))
+    ).rejects.toBeInstanceOf(ExportCanceledError);
+    expect(wc.jobs).toHaveLength(0);
+    expect(ff.jobs).toHaveLength(0);
+  });
+
+  test("a target size in MP4 runs its passes on the fast engine", async () => {
+    const wc = noWebm();
+    wc.encode = async (job) => {
+      wc.jobs.push(job);
+      return new Blob([new Uint8Array(19_000_000)]);
+    };
+    const result = await exportVideo(
+      recipe({ container: "webm", size: TARGET_20 }),
+      { confirmFallback: async () => "mp4" },
+      deps(wc, fakeEngine("ffmpeg"))
+    );
+    expect(result).toMatchObject({ engine: "webcodecs", fileName: "Trip-zimonza.mp4", attempts: 1 });
+    expect(wc.jobs.map((j) => j.container)).toEqual(["mp4"]);
+  });
+
+  test("no MP4 offer when MP4 would need the backup engine too (the fast engine can't read the file)", async () => {
+    const wc = fakeEngine("webcodecs", { precheck: { ok: false, reason: "The fast engine can't read this file type." } });
+    const ff = fakeEngine("ffmpeg");
+    const asked: Question[] = [];
+    const result = await exportVideo(
+      recipe({ container: "webm" }),
+      {
+        confirmFallback: async (q) => {
+          asked.push(q);
+          return "continue";
+        },
+      },
+      deps(wc, ff)
+    );
+    expect(asked).toEqual([{ reason: "The fast engine can't read this file type.", estimatedSec: 675 }]);
+    expect(result).toMatchObject({ engine: "ffmpeg", fileName: "Trip-zimonza.webm" });
+  });
+
+  test("no MP4 offer for an MP4 export, nor when the fast engine fails partway through WebM", async () => {
+    const asked: Question[] = [];
+    const confirmFallback = async (q: Question) => {
+      asked.push(q);
+      return "continue" as const;
+    };
+    const mp4Refused = fakeEngine("webcodecs", { precheck: { ok: false, reason: "no encoder" } });
+    await exportVideo(recipe(), { confirmFallback }, deps(mp4Refused, fakeEngine("ffmpeg")));
+    const failsPartway = fakeEngine("webcodecs", { error: new Error("boom") });
+    await exportVideo(recipe({ container: "webm" }), { confirmFallback }, deps(failsPartway, fakeEngine("ffmpeg")));
+    expect(asked.map((q) => q.mp4Instead)).toEqual([undefined, undefined]);
   });
 });
 

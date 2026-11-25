@@ -22,6 +22,19 @@ export type ExportStatus =
   | { phase: "probe-fallback"; reason: string }
   | { phase: "fallback"; reason: string; estimatedSec: number };
 
+/**
+ * The question before a run on the slow backup engine. `mp4Instead`: the export is WebM, which the
+ * fast engine can't make here, but it can make the same plan as MP4, so MP4 is offered first.
+ */
+export interface FallbackQuestion {
+  reason: string;
+  estimatedSec: number;
+  mp4Instead?: true;
+}
+
+/** "continue": run on the backup engine. "mp4": export MP4 on the fast engine instead (only when offered). */
+export type FallbackAnswer = "continue" | "mp4" | "cancel";
+
 export interface ExportOptions {
   /** "auto" (default) prefers WebCodecs and falls back to ffmpeg once. A forced engine never falls back. */
   engine?: "auto" | EngineId;
@@ -29,8 +42,8 @@ export interface ExportOptions {
   /** Progress of the current pass, 0..1. */
   onProgress?(p: number): void;
   onStatus?(s: ExportStatus): void;
-  /** Auto mode asks before every run on the slow backup engine; false cancels the export. */
-  confirmFallback?(f: { reason: string; estimatedSec: number }): Promise<boolean>;
+  /** Auto mode asks before every run on the slow backup engine; "cancel" cancels the export. */
+  confirmFallback?(f: FallbackQuestion): Promise<FallbackAnswer>;
 }
 
 export interface ExportResult {
@@ -315,13 +328,15 @@ async function runExport(
   const p = await prepare(recipe, deps, status, checkAbort);
   const { d, info, trim, durationSec, crop, fit, sourceBps, initialPlan, targetBytes, onEngineDownload } = p;
 
+  /** The container written: the recipe's, unless the person took MP4 instead of slow WebM. */
+  let container: Container = recipe.container;
   const runOn = async (engine: VideoEngine, startPlan: EncodePlan): Promise<EngineRun> => {
     const baseJob: Omit<EncodeJob, "plan"> = {
       file: recipe.file,
       info,
       trim,
       edits: { rotate: recipe.rotate, flipH: recipe.flipH, flipV: recipe.flipV, crop, fit },
-      container: recipe.container,
+      container,
       signal,
       onProgress: (fraction) => options.onProgress?.(fraction),
       onEngineDownload,
@@ -336,13 +351,20 @@ async function runExport(
   let run: EngineRun;
 
   const isMobile = d.isMobile ?? isMobileDevice;
-  const runBackup = async (reason: string, plan: EncodePlan): Promise<EngineRun> => {
+  /** `mp4Instead`: the fast engine can run `plan` as MP4, so the question offers that first. */
+  const runBackup = async (reason: string, plan: EncodePlan, mp4Instead = false): Promise<EngineRun> => {
     const estimatedSec = estimateBackupSeconds(durationSec, plan, isMobile());
     status({ phase: "fallback", reason, estimatedSec });
-    if (options.confirmFallback && !(await options.confirmFallback({ reason, estimatedSec }))) {
-      throw new ExportCanceledError();
-    }
+    const answer = options.confirmFallback
+      ? await options.confirmFallback({ reason, estimatedSec, ...(mp4Instead ? { mp4Instead: true as const } : {}) })
+      : "continue";
+    if (answer === "cancel") throw new ExportCanceledError();
     checkAbort();
+    if (answer === "mp4" && mp4Instead) {
+      container = "mp4";
+      engineId = "webcodecs";
+      return runOn(d.engines.webcodecs, plan);
+    }
     engineId = "ffmpeg";
     return runOn(d.engines.ffmpeg, plan);
   };
@@ -362,13 +384,17 @@ async function runExport(
         run = await runBackup(e instanceof Error ? e.message : String(e), plan);
       }
     } else {
-      run = await runBackup(check.reason, plan);
+      // WebM this device can't make quickly: offer MP4 when the fast engine can make the same plan
+      // that way. (When it can't read the file at all, MP4 would be just as slow.)
+      const mp4Instead =
+        recipe.container === "webm" && (await d.engines.webcodecs.precheck(info, plan, "mp4")).ok;
+      run = await runBackup(check.reason, plan, mp4Instead);
     }
   }
 
   return {
     blob: run.blob,
-    fileName: outputFileName(recipe.file.name, recipe.container),
+    fileName: outputFileName(recipe.file.name, container),
     engine: engineId,
     width: run.plan.width,
     height: run.plan.height,

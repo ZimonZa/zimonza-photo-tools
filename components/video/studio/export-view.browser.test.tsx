@@ -1,6 +1,7 @@
 import { act, createElement, useState, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import type { FallbackQuestion } from "@/lib/video/export";
 import { useVideoStore, type ExportState } from "@/store/useVideoStore";
 import { ExportView } from "./export-view";
 import { useExportGuards } from "./use-export-guards";
@@ -137,7 +138,7 @@ function showExport(exportState: ExportState, actions: Partial<ReturnType<typeof
   });
 }
 
-const running = (confirm: { reason: string; estimatedSec: number } | null): ExportState => ({
+const running = (confirm: FallbackQuestion | null): ExportState => ({
   kind: "running",
   statusText: "Encoding…",
   progress: 0.4,
@@ -164,12 +165,54 @@ describe("ExportView", () => {
     expect(document.activeElement && dialog.contains(document.activeElement)).toBe(true);
 
     await act(async () => button("Continue").click());
-    expect(answerFallback).toHaveBeenLastCalledWith(true);
+    expect(answerFallback).toHaveBeenLastCalledWith("continue");
     await act(async () => dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-    expect(answerFallback).toHaveBeenLastCalledWith(false);
+    expect(answerFallback).toHaveBeenLastCalledWith("cancel");
     const cancels = dialog.querySelectorAll("button");
     await act(async () => Array.from(cancels).find((b) => b.textContent === "Cancel")!.click());
     expect(answerFallback).toHaveBeenCalledTimes(3);
+  });
+
+  test("WebM the fast engine can't make, MP4 it can: three choices, Export as MP4 first and focused, Escape cancels", async () => {
+    const answerFallback = vi.fn();
+    showExport(
+      running({ reason: "This browser can't encode Opus audio for WebM.", estimatedSec: 130, mp4Instead: true }),
+      { answerFallback }
+    );
+    await render(createElement(ExportView, { onClose: () => {} }));
+    const dialog = document.querySelector('[role="alertdialog"]') as HTMLElement;
+    expect(dialog.textContent).toContain("Make WebM with the slower engine?");
+    expect(dialog.textContent).toContain(
+      "This browser can't make WebM quickly. MP4 plays almost everywhere WebM does and will be ready at normal speed. WebM on the backup engine will take at least about 3 min."
+    );
+    const buttons = Array.from(dialog.querySelectorAll("button"));
+    expect(buttons.map((b) => b.textContent)).toEqual(["Export as MP4", "Make WebM anyway", "Cancel"]);
+    expect(document.activeElement).toBe(buttons[0]);
+
+    await act(async () => buttons[0].click());
+    expect(answerFallback).toHaveBeenLastCalledWith("mp4");
+    await act(async () => buttons[1].click());
+    expect(answerFallback).toHaveBeenLastCalledWith("continue");
+    await act(async () => buttons[2].click());
+    expect(answerFallback).toHaveBeenLastCalledWith("cancel");
+    answerFallback.mockClear();
+    await act(async () => dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(answerFallback).toHaveBeenCalledWith("cancel");
+
+    // Focus stays inside it: Tab from the last choice comes back to the first.
+    buttons[2].focus();
+    const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    await act(async () => void buttons[2].dispatchEvent(tab));
+    expect(tab.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(buttons[0]);
+  });
+
+  test("without the MP4 offer the question keeps its two choices", async () => {
+    showExport(running({ reason: "The fast engine can't read this file type.", estimatedSec: 130 }));
+    await render(createElement(ExportView, { onClose: () => {} }));
+    const dialog = document.querySelector('[role="alertdialog"]') as HTMLElement;
+    expect(dialog.textContent).toContain("Use the slower engine?");
+    expect(Array.from(dialog.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["Cancel", "Continue"]);
   });
 
   test("the slow-engine question never shows an engine's own error text", async () => {
@@ -408,7 +451,7 @@ describe("ExportView", () => {
       });
       expect(document.activeElement).toBe(buttons[0]);
       await act(async () => void press("Escape"));
-      expect(answerFallback).toHaveBeenCalledWith(false);
+      expect(answerFallback).toHaveBeenCalledWith("cancel");
       expect(onClose).not.toHaveBeenCalled();
       expect(e.defaultPrevented).toBe(true);
     });

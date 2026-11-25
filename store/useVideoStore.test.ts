@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { createJobQueue } from "@/lib/video/engines/job-queue";
 import type { VideoInfo } from "@/lib/video/engines/types";
 import { ExportCanceledError, TargetNotReachedError } from "@/lib/video/errors";
-import type { ExportOptions, ExportResult, SamplePreview } from "@/lib/video/export";
+import type { ExportOptions, ExportResult, FallbackAnswer, SamplePreview } from "@/lib/video/export";
 import { MB, type EditRecipe } from "@/lib/video/recipe";
 import { createVideoStore, QUALITY_DEBOUNCE_MS, type ProbeStatus, type VideoStoreDeps } from "@/store/useVideoStore";
 
@@ -479,12 +479,11 @@ describe("export", () => {
     await p;
   });
 
-  test("confirmFallback opens the question; answerFallback(true) continues, (false) cancels back to idle", async () => {
-    for (const answer of [true, false]) {
+  test("confirmFallback opens the question; answerFallback continue goes on, cancel goes back to idle", async () => {
+    for (const answer of ["continue", "cancel"] as const) {
       const { store } = await ready({
         exportVideo: async (_r, o) => {
-          const ok = await o.confirmFallback!({ reason: "slow", estimatedSec: 90 });
-          if (!ok) throw new ExportCanceledError();
+          if ((await o.confirmFallback!({ reason: "slow", estimatedSec: 90 })) === "cancel") throw new ExportCanceledError();
           return result();
         },
       });
@@ -494,16 +493,45 @@ describe("export", () => {
       expect(s.kind === "running" && s.confirm).toEqual({ reason: "slow", estimatedSec: 90 });
       store.getState().answerFallback(answer);
       await p;
-      expect(store.getState().exportState.kind).toBe(answer ? "done" : "idle");
+      expect(store.getState().exportState.kind).toBe(answer === "continue" ? "done" : "idle");
     }
   });
 
-  test("cancelExport while the question is open answers no and returns to idle", async () => {
-    let answered: boolean | null = null;
+  test("WebM the fast engine can't make: the question offers MP4; Export as MP4 answers mp4 and turns the recipe MP4", async () => {
+    let answered: FallbackAnswer | null = null;
+    const { store } = await ready({
+      exportVideo: async (_r, o) => {
+        answered = await o.confirmFallback!({ reason: "This browser can't encode Opus audio for WebM.", estimatedSec: 300, mp4Instead: true });
+        return { ...result(), fileName: "a-zimonza.mp4" };
+      },
+    });
+    store.getState().updateRecipe({ container: "webm" });
+    const p = store.getState().startExport();
+    await vi.advanceTimersByTimeAsync(0);
+    const s = store.getState().exportState;
+    expect(s.kind === "running" && s.confirm).toMatchObject({ mp4Instead: true, estimatedSec: 300 });
+    store.getState().answerFallback("mp4");
+    expect(store.getState().recipe.container).toBe("mp4");
+    await p;
+    expect(answered).toBe("mp4");
+    expect(store.getState().exportState.kind).toBe("done");
+    // Make WebM anyway keeps WebM.
+    store.getState().closeResult();
+    store.getState().updateRecipe({ container: "webm" });
+    const again = store.getState().startExport();
+    await vi.advanceTimersByTimeAsync(0);
+    store.getState().answerFallback("continue");
+    await again;
+    expect(answered).toBe("continue");
+    expect(store.getState().recipe.container).toBe("webm");
+  });
+
+  test("cancelExport while the question is open answers cancel and returns to idle", async () => {
+    let answered: FallbackAnswer | null = null;
     const { store } = await ready({
       exportVideo: async (_r, o) => {
         answered = await o.confirmFallback!({ reason: "slow", estimatedSec: 5 });
-        if (!answered) throw new ExportCanceledError();
+        if (answered === "cancel") throw new ExportCanceledError();
         return result();
       },
     });
@@ -511,7 +539,7 @@ describe("export", () => {
     await vi.advanceTimersByTimeAsync(0);
     store.getState().cancelExport();
     await p;
-    expect(answered).toBe(false);
+    expect(answered).toBe("cancel");
     expect(store.getState().exportState.kind).toBe("idle");
   });
 
@@ -725,8 +753,8 @@ describe("superseded work", () => {
     expect(deps.objectUrl).toHaveBeenCalledTimes(1); // only the preview url; no result url
   });
 
-  test("opening a file during an open fallback question answers no, and a new export is not clobbered", async () => {
-    let answered: boolean | null = null;
+  test("opening a file during an open fallback question answers cancel, and a new export is not clobbered", async () => {
+    let answered: FallbackAnswer | null = null;
     const second = deferred<ExportResult>();
     let calls = 0;
     const { store } = await ready({
@@ -742,7 +770,7 @@ describe("superseded work", () => {
     await vi.advanceTimersByTimeAsync(0);
     await store.getState().openFile(file("b.mp4"));
     await p1;
-    expect(answered).toBe(false);
+    expect(answered).toBe("cancel");
     expect(store.getState().exportState.kind).toBe("idle");
 
     const p2 = store.getState().startExport();
@@ -752,8 +780,8 @@ describe("superseded work", () => {
     expect(store.getState().exportState.kind).toBe("done");
   });
 
-  test("a second confirmFallback call resolves the previous question with no", async () => {
-    const answers: boolean[] = [];
+  test("a second confirmFallback call resolves the previous question with cancel", async () => {
+    const answers: FallbackAnswer[] = [];
     const { store } = await ready({
       exportVideo: async (_r, o) => {
         void o.confirmFallback!({ reason: "one", estimatedSec: 1 }).then((a) => answers.push(a));
@@ -764,8 +792,8 @@ describe("superseded work", () => {
     });
     const p = store.getState().startExport();
     await vi.advanceTimersByTimeAsync(0);
-    store.getState().answerFallback(true);
+    store.getState().answerFallback("continue");
     await p;
-    expect(answers).toEqual([false, true]);
+    expect(answers).toEqual(["cancel", "continue"]);
   });
 });

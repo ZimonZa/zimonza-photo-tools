@@ -273,6 +273,8 @@ export function EngineLab() {
                 window.confirm(
                   `The fast engine can't do this on your device. The backup engine will take about ${Math.max(1, Math.round(estimatedSec / 60))} min. Continue?`
                 )
+                  ? "continue"
+                  : "cancel"
             : undefined,
         onStatus: (s) => {
           if (s.phase === "probed") setProbed(s.info);

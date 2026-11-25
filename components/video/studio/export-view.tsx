@@ -183,7 +183,12 @@ function RunningStep({ onClose }: { onClose: () => void }) {
         Cancel
       </Button>
       {state.confirm && (
-        <FallbackDialog reason={state.confirm.reason} estimatedSec={state.confirm.estimatedSec} onAnswer={answerFallback} />
+        <FallbackDialog
+          reason={state.confirm.reason}
+          estimatedSec={state.confirm.estimatedSec}
+          mp4Instead={state.confirm.mp4Instead === true}
+          onAnswer={answerFallback}
+        />
       )}
     </div>
   );

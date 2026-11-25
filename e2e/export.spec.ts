@@ -47,6 +47,37 @@ test("WebM: the download is named .webm", async ({ page }) => {
   expect(saved.suggestedFilename()).toMatch(/\.webm$/);
 });
 
+test("WebM this device can't make quickly: the question offers MP4 first, which exports at once as .mp4 and turns the format MP4", async ({
+  page,
+}) => {
+  // Like most iPhones: no Opus encoder, so WebM would need the backup engine; MP4 (AAC) is fine.
+  await page.addInitScript(() => {
+    const supported = AudioEncoder.isConfigSupported.bind(AudioEncoder);
+    AudioEncoder.isConfigSupported = (config: AudioEncoderConfig) =>
+      config.codec === "opus" ? Promise.resolve({ supported: false, config }) : supported(config);
+  });
+  await gotoStudio(page);
+  await openClip(page, { seconds: 3 });
+  const dialog = await openExport(page);
+  await dialog.getByRole("button", { name: "WebM", exact: true }).click();
+  await dialog.getByRole("button", { name: "Start export" }).click();
+
+  const question = page.getByRole("alertdialog");
+  await expect(question).toContainText("Make WebM with the slower engine?");
+  const mp4 = question.getByRole("button", { name: "Export as MP4" });
+  await expect(mp4).toBeFocused();
+  await expect(question.getByRole("button", { name: "Make WebM anyway" })).toBeVisible();
+  await mp4.click();
+
+  const download = dialog.getByRole("link", { name: "Download" });
+  await expect(download).toBeVisible({ timeout: 150_000 });
+  await expect(download).toHaveAttribute("download", "test-clip-zimonza.mp4");
+  await dialog.getByRole("button", { name: "Edit again" }).click();
+  await expect(estimate(page)).toContainText("MP4");
+  const reopened = await openExport(page);
+  await expect(reopened.getByRole("button", { name: "MP4", exact: true })).toHaveAttribute("aria-pressed", "true");
+});
+
 test("Cancel during an export returns to the editor, and a new export completes", async ({ page }) => {
   // Long and heavy enough that the encode cannot finish before Cancel is clicked.
   await openClip(page, { seconds: 20, width: 1920, height: 1080 });
