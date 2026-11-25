@@ -4,7 +4,7 @@ import { isMobileDevice } from "@/lib/video/estimate";
 import { remapCrop } from "@/lib/video/frame";
 import { describeExportError, describeStudioStatus } from "@/lib/video/messages";
 import { applyPreset, VIDEO_PRESETS, type PresetId } from "@/lib/video/presets";
-import { BASE_RECIPE, type EditRecipe } from "@/lib/video/recipe";
+import { BASE_RECIPE, MB, type EditRecipe } from "@/lib/video/recipe";
 import type { ExportOptions, ExportResult, ExportStatus, SamplePreview } from "@/lib/video/export";
 
 /** Quiet time after the last edit before a quality sample starts. */
@@ -78,6 +78,7 @@ export interface VideoState {
   load: LoadState;
   recipe: RecipeEdits;
   presetId: PresetId;
+  /** The last target size in MB, from the Form upload field or the export view; Form upload starts from it. */
   targetMb: number;
   tool: ToolId;
   /** Where the clip was last paused, looped or sought. Quality samples start here. */
@@ -95,7 +96,10 @@ export interface VideoState {
 
   openFile(file: File): Promise<void>;
   reset(): void;
-  /** Edit the recipe by hand; marks the preset Custom. Rotate/flip changes keep an existing crop on the same picture area. */
+  /**
+   * Edit the recipe by hand; marks the preset Custom. Rotate/flip changes keep an existing crop on the
+   * same picture area. A target size set here (the export view) becomes `targetMb` too.
+   */
   updateRecipe(patch: Partial<RecipeEdits>): void;
   choosePreset(id: PresetId): void;
   setTargetMb(mb: number): void;
@@ -345,7 +349,9 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
             { rotate: next.rotate, flipH: next.flipH, flipV: next.flipV }
           );
         }
-        set({ recipe: next, presetId: onlyFitChanged(recipe, next) ? get().presetId : "custom" });
+        // One target MB wherever it was typed, so a later Form upload starts from it, not from a stale one.
+        const targetMb = patch.size?.kind === "target" ? patch.size.bytes / MB : get().targetMb;
+        set({ recipe: next, presetId: onlyFitChanged(recipe, next) ? get().presetId : "custom", targetMb });
         scheduleSample();
       },
 

@@ -202,6 +202,20 @@ describe("recipe and presets", () => {
     expect(s.presetId).toBe("form");
   });
 
+  test("a target set anywhere (the export view) is the Form upload size too", async () => {
+    const { store } = await ready();
+    store.getState().updateRecipe({ size: { kind: "target", bytes: 3_500_000 } });
+    expect(store.getState().targetMb).toBe(3.5);
+    // Choosing Form upload later keeps it, instead of going back to the old 10 MB.
+    store.getState().choosePreset("form");
+    expect(store.getState().recipe.size).toEqual({ kind: "target", bytes: 3_500_000 });
+    // A quality size leaves the last target be.
+    store.getState().updateRecipe({ size: { kind: "quality", level: "high" } });
+    expect(store.getState().targetMb).toBe(3.5);
+    store.getState().choosePreset("form");
+    expect(store.getState().recipe.size).toEqual({ kind: "target", bytes: 3_500_000 });
+  });
+
   test("a size typed but not usable is held as a message, never in the recipe; a new file or reset clears it", async () => {
     const { store } = await ready();
     const recipe = store.getState().recipe;
