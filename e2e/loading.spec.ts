@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { recordClip } from "./fixtures";
+import { gotoStudio, recordClip } from "./fixtures";
 
 /**
  * Make this page's browser refuse to play any file (the playability check gets an error), so
@@ -36,8 +36,7 @@ test("opening a file shows Reading the video…, then Preparing preview… with 
   page,
 }) => {
   await unplayableBrowser(page, { hold: true });
-  await page.goto("/video/");
-  await expect(page.getByText("Drop a video here")).toBeVisible();
+  await gotoStudio(page);
   await recordClip(page, { seconds: 3 });
   const status = page.getByRole("status").filter({ hasText: "Preparing preview…" });
   await expect(status).toBeVisible();
@@ -53,8 +52,7 @@ test("opening a file shows Reading the video…, then Preparing preview… with 
 
 test("a file the browser can't play opens with a low-res preview", async ({ page }) => {
   await unplayableBrowser(page, { hold: false });
-  await page.goto("/video/");
-  await expect(page.getByText("Drop a video here")).toBeVisible();
+  await gotoStudio(page);
   await recordClip(page, { seconds: 3 });
   await expect(page.getByText("Low-res preview")).toBeVisible({ timeout: 60_000 });
   expect(await seen(page)).toEqual(["Reading the video…", "Preparing preview…"]);

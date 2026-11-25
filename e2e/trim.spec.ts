@@ -1,15 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { recordClip } from "./fixtures";
-
-const startHandle = (page: Page) => page.getByRole("slider", { name: "Trim start" });
-const endHandle = (page: Page) => page.getByRole("slider", { name: "Trim end" });
-const track = (page: Page) => page.getByTestId("timeline-track");
-const num = async (loc: Locator, attr = "aria-valuenow") => Number(await loc.getAttribute(attr));
-
-async function estimateMb(page: Page): Promise<number> {
-  const text = await page.getByText(/≈ [\d.]+ MB/).first().innerText();
-  return Number(/≈ ([\d.]+) MB/.exec(text)![1]);
-}
+import { endHandle, estimateMb, gotoStudio, num, openClip, startHandle, track } from "./fixtures";
 
 /**
  * Press on a handle's bar and drag it to `fraction` of the track width (0 = left end, 1 = right end).
@@ -26,10 +16,8 @@ async function dragHandle(page: Page, handle: Locator, fraction: number) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/video/");
-  await expect(page.getByText("Drop a video here")).toBeVisible();
-  await recordClip(page, { seconds: 4, width: 1280, height: 720 });
-  await expect(page.getByText("test-clip.mp4")).toBeVisible();
+  await gotoStudio(page);
+  await openClip(page);
   await expect(endHandle(page)).toBeVisible();
 });
 

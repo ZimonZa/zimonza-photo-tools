@@ -1,7 +1,5 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
-import { recordClip } from "./fixtures";
-
-const previewCanvas = (page: Page) => page.getByLabel("Preview", { exact: true }).locator("canvas");
+import { expect, test, type Locator } from "@playwright/test";
+import { gotoStudio, openClip, previewCanvas, tapOrClick } from "./fixtures";
 
 /** A cheap fingerprint of the canvas pixels; changes when the picture changes. */
 function fingerprint(canvas: Locator): Promise<number> {
@@ -15,16 +13,7 @@ function fingerprint(canvas: Locator): Promise<number> {
   });
 }
 
-async function openClip(page: Page) {
-  await recordClip(page, { seconds: 4, width: 1280, height: 720 });
-  await expect(page.getByText("test-clip.mp4")).toBeVisible();
-  await expect(previewCanvas(page)).toBeVisible();
-}
-
-test.beforeEach(async ({ page }) => {
-  await page.goto("/video/");
-  await expect(page.getByText("Drop a video here")).toBeVisible();
-});
+test.beforeEach(async ({ page }) => gotoStudio(page));
 
 test("the preview canvas shows the clip and changes while playing", async ({ page }) => {
   await openClip(page);
@@ -52,9 +41,7 @@ test("rotating 90° turns the preview portrait", async ({ page }, info) => {
   const landscape = (await canvas.boundingBox())!;
   expect(landscape.width).toBeGreaterThan(landscape.height);
 
-  const rotateTool = page.getByRole("button", { name: "Rotate", exact: true });
-  if (info.project.name === "phone") await rotateTool.tap();
-  else await rotateTool.click();
+  await tapOrClick(page.getByRole("button", { name: "Rotate", exact: true }), info);
   await page.getByRole("button", { name: "90° right" }).click();
 
   await expect

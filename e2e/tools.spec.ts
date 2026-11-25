@@ -1,21 +1,11 @@
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
-import { recordClip, type ClipOptions } from "./fixtures";
+import { estimate, estimateMb, gotoStudio, isPhone, openClip, presetPicker, previewCanvas } from "./fixtures";
 
 type Rgb = [number, number, number];
 // Colours come back approximate after lossy encoding.
 const isRed = ([r, g, b]: Rgb) => r > 160 && g < 90 && b < 90;
 const isBlue = ([r, g, b]: Rgb) => b > 160 && r < 90 && g < 90;
 const isBlack = ([r, g, b]: Rgb) => r + g + b < 30;
-
-const isPhone = (info: TestInfo) => info.project.name === "phone";
-const previewCanvas = (page: Page) => page.getByLabel("Preview", { exact: true }).locator("canvas");
-const estimate = (page: Page) => page.getByTestId("estimate");
-const presetPicker = (page: Page) => page.getByRole("combobox", { name: "Preset" });
-
-async function estimateMb(page: Page): Promise<number> {
-  const text = await estimate(page).innerText();
-  return Number(/≈ ([\d.]+) MB/.exec(text)![1]);
-}
 
 /** Read one pixel of a canvas at a fraction of its width and height. */
 function pixel(canvas: Locator, fx: number, fy: number): Promise<Rgb> {
@@ -30,12 +20,6 @@ function pixel(canvas: Locator, fx: number, fy: number): Promise<Rgb> {
     },
     [fx, fy] as const
   );
-}
-
-async function openClip(page: Page, opts: ClipOptions = {}) {
-  await recordClip(page, { seconds: 4, width: 1280, height: 720, ...opts });
-  await expect(page.getByText("test-clip.mp4")).toBeVisible();
-  await expect(estimate(page)).toContainText("MB");
 }
 
 async function closeSheet(page: Page) {
@@ -122,10 +106,7 @@ async function expectSquareCanvas(page: Page) {
   expect(w).toBe(h);
 }
 
-test.beforeEach(async ({ page }) => {
-  await page.goto("/video/");
-  await expect(page.getByText("Drop a video here")).toBeVisible();
-});
+test.beforeEach(async ({ page }) => gotoStudio(page));
 
 test("Instagram Reel: 1080×1920 starts on Crop to fill; Blurred background fills the corners", async ({ page }, info) => {
   await openClip(page);

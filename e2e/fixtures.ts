@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import { expect, type Locator, type Page, type TestInfo } from "@playwright/test";
 
 export interface ClipOptions {
   seconds?: number;
@@ -129,4 +129,46 @@ export async function recordClip(page: Page, opts: ClipOptions = {}): Promise<vo
     },
     { seconds, width, height, mime, pattern }
   );
+}
+
+/* Shared by the specs: the editor's parts, and opening a clip. */
+
+export const isPhone = (info: TestInfo) => info.project.name === "phone";
+export const estimate = (page: Page) => page.getByTestId("estimate");
+export const presetPicker = (page: Page) => page.getByRole("combobox", { name: "Preset" });
+export const previewCanvas = (page: Page) => page.getByLabel("Preview", { exact: true }).locator("canvas");
+export const startHandle = (page: Page) => page.getByRole("slider", { name: "Trim start" });
+export const endHandle = (page: Page) => page.getByRole("slider", { name: "Trim end" });
+export const track = (page: Page) => page.getByTestId("timeline-track");
+
+/** A number attribute of `loc` (by default a slider's value). */
+export const num = async (loc: Locator, attr = "aria-valuenow") => Number(await loc.getAttribute(attr));
+
+/** The MB figure on the estimate line ("≈ 1.2 MB · …"). */
+export async function estimateMb(page: Page): Promise<number> {
+  const text = await estimate(page).innerText();
+  return Number(/≈ ([\d.]+) MB/.exec(text)![1]);
+}
+
+/** A tap on the phone project, a click on the desktop one. */
+export async function tapOrClick(loc: Locator, info: TestInfo): Promise<void> {
+  if (isPhone(info)) await loc.tap();
+  else await loc.click();
+}
+
+/** Open the editor and wait for its dropzone. */
+export async function gotoStudio(page: Page): Promise<void> {
+  await page.goto("/video/");
+  await expect(page.getByText("Drop a video here")).toBeVisible();
+}
+
+/**
+ * Record a clip (4 s at 1280×720 unless `opts` says otherwise), open it, and wait for the editor:
+ * the file name, an estimate and the preview.
+ */
+export async function openClip(page: Page, opts: ClipOptions = {}): Promise<void> {
+  await recordClip(page, { seconds: 4, width: 1280, height: 720, ...opts });
+  await expect(page.getByText("test-clip.mp4")).toBeVisible();
+  await expect(estimate(page)).toContainText("MB");
+  await expect(previewCanvas(page)).toBeVisible();
 }

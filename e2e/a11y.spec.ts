@@ -1,19 +1,7 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
-import { recordClip } from "./fixtures";
+import { expect, test, type Locator } from "@playwright/test";
+import { estimate, gotoStudio, isPhone, openClip, presetPicker, tapOrClick } from "./fixtures";
 
-const estimate = (page: Page) => page.getByTestId("estimate");
-const presetPicker = (page: Page) => page.getByRole("combobox", { name: "Preset" });
-
-test.beforeEach(async ({ page }) => {
-  await page.goto("/video/");
-  await expect(page.getByText("Drop a video here")).toBeVisible();
-});
-
-async function openClip(page: Page, seconds = 4) {
-  await recordClip(page, { seconds, width: 1280, height: 720 });
-  await expect(page.getByText("test-clip.mp4")).toBeVisible();
-  await expect(estimate(page)).toContainText("MB");
-}
+test.beforeEach(async ({ page }) => gotoStudio(page));
 
 /** The visible controls in `root`, in DOM (= Tab) order, with where they sit on screen. */
 function controlsInTabOrder(root: Locator) {
@@ -75,16 +63,14 @@ test("light theme: the amber warnings and the No sound badge are readable (4.5:1
   page,
 }, info) => {
   await page.addInitScript(() => localStorage.setItem("theme", "light"));
-  await page.goto("/video/");
-  await openClip(page, 6);
+  await gotoStudio(page);
+  await openClip(page, { seconds: 6 });
   expect(await page.evaluate(() => document.documentElement.classList.contains("dark"))).toBe(false);
 
   // Sound off, then a target too small for the clip: both amber texts on the estimate line.
-  const sound = page.getByRole("navigation", { name: "Video tools" }).getByRole("button", { name: "Sound", exact: true });
-  if (info.project.name === "phone") await sound.tap();
-  else await sound.click();
+  await tapOrClick(page.getByRole("navigation", { name: "Video tools" }).getByRole("button", { name: "Sound", exact: true }), info);
   await page.getByRole("radio", { name: "Off" }).click();
-  if (info.project.name === "phone") await page.getByRole("dialog", { name: "Sound" }).getByRole("button", { name: "Done" }).tap();
+  if (isPhone(info)) await page.getByRole("dialog", { name: "Sound" }).getByRole("button", { name: "Done" }).tap();
   await presetPicker(page).selectOption("form");
   await page.getByRole("textbox", { name: "Target size in MB" }).fill("0.1");
   await page.getByRole("button", { name: "Apply", exact: true }).click();

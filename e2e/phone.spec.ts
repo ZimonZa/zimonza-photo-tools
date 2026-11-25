@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { recordClip } from "./fixtures";
+import { endHandle, estimate, gotoStudio, num, openClip, previewCanvas, startHandle, track } from "./fixtures";
 
 test.skip(({ isMobile }) => !isMobile, "the phone layout");
 
@@ -10,12 +10,6 @@ const bottom = (b: Box) => b.y + b.height;
 const toolBar = (page: Page) => page.getByRole("navigation", { name: "Video tools" });
 const toolButton = (page: Page, name: string) => toolBar(page).getByRole("button", { name, exact: true });
 const sheetFor = (page: Page, name: string) => page.getByRole("dialog", { name });
-const estimate = (page: Page) => page.getByTestId("estimate");
-const previewCanvas = (page: Page) => page.getByLabel("Preview", { exact: true }).locator("canvas");
-const endHandle = (page: Page) => page.getByRole("slider", { name: "Trim end" });
-const startHandle = (page: Page) => page.getByRole("slider", { name: "Trim start" });
-const track = (page: Page) => page.getByTestId("timeline-track");
-const num = async (loc: Locator) => Number(await loc.getAttribute("aria-valuenow"));
 
 /** The page never scrolls sideways, and never scrolls at all while editing. */
 async function expectNoPageScroll(page: Page) {
@@ -27,13 +21,6 @@ async function expectNoPageScroll(page: Page) {
   expect(sw).toBeLessThanOrEqual(390);
   expect(sx).toBe(0);
   expect(sy).toBe(0);
-}
-
-async function openClip(page: Page) {
-  await recordClip(page, { seconds: 4, width: 1280, height: 720 });
-  await expect(page.getByText("test-clip.mp4")).toBeVisible();
-  await expect(estimate(page)).toContainText("MB");
-  await expect(previewCanvas(page)).toBeVisible();
 }
 
 async function openSheet(page: Page, name: string): Promise<Locator> {
@@ -57,10 +44,7 @@ async function touchDrag(page: Page, from: { x: number; y: number }, to: { x: nu
   await cdp.detach();
 }
 
-test.beforeEach(async ({ page }) => {
-  await page.goto("/video/");
-  await expect(page.getByText("Drop a video here")).toBeVisible();
-});
+test.beforeEach(async ({ page }) => gotoStudio(page));
 
 test("390 px: no sideways scroll, Export on the top bar's only row, 44 px touch targets, quality preview off", async ({ page }) => {
   await openClip(page);

@@ -1,16 +1,8 @@
 import { statSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
-import { recordClip, type ClipOptions } from "./fixtures";
+import { estimate, gotoStudio, openClip, presetPicker } from "./fixtures";
 
-const estimate = (page: Page) => page.getByTestId("estimate");
-const presetPicker = (page: Page) => page.getByRole("combobox", { name: "Preset" });
 const exportDialog = (page: Page) => page.getByRole("dialog", { name: "Export" });
-
-async function openClip(page: Page, opts: ClipOptions = {}) {
-  await recordClip(page, { seconds: 6, width: 1280, height: 720, ...opts });
-  await expect(page.getByText("test-clip.mp4")).toBeVisible();
-  await expect(estimate(page)).toContainText("MB");
-}
 
 async function openExport(page: Page) {
   await page.getByRole("button", { name: "Export", exact: true }).click();
@@ -19,13 +11,10 @@ async function openExport(page: Page) {
   return dialog;
 }
 
-test.beforeEach(async ({ page }) => {
-  await page.goto("/video/");
-  await expect(page.getByText("Drop a video here")).toBeVisible();
-});
+test.beforeEach(async ({ page }) => gotoStudio(page));
 
 test("Target 2 MB: the downloaded file is at most 2 MB and the result has the planned size", async ({ page }) => {
-  await openClip(page);
+  await openClip(page, { seconds: 6 });
   const dialog = await openExport(page);
   await dialog.getByRole("button", { name: "Target", exact: true }).click();
   await dialog.getByRole("textbox", { name: "Target size (MB)" }).fill("2");
