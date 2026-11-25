@@ -13,6 +13,9 @@ import { useDialogKeys } from "./use-dialog-keys";
  *
  * `mp4Instead` (WebM this device can't make quickly, MP4 it can): MP4 comes first and has the
  * focus, then "Make WebM anyway" (the backup engine), then Cancel, one under the other.
+ *
+ * It covers the whole export view (fixed), not just the running step: on computers that step is a
+ * short modal, and a taller question would be cut off inside it.
  */
 export function FallbackDialog({
   reason,
@@ -36,7 +39,7 @@ export function FallbackDialog({
 
   const onKeyDown = useDialogKeys(ref, () => onAnswer("cancel"));
   return (
-    <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 p-4">
+    <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/60 p-4">
       <div
         ref={ref}
         role="alertdialog"

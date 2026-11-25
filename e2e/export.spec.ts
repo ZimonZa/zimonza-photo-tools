@@ -66,7 +66,18 @@ test("WebM this device can't make quickly: the question offers MP4 first, which 
   await expect(question).toContainText("Make WebM with the slower engine?");
   const mp4 = question.getByRole("button", { name: "Export as MP4" });
   await expect(mp4).toBeFocused();
-  await expect(question.getByRole("button", { name: "Make WebM anyway" })).toBeVisible();
+  // The whole question shows, not cut off by the (short, on computers) export panel: what is drawn
+  // at the title's corner and at each button's centre is that element.
+  const shown = (loc: typeof question, corner: boolean) =>
+    loc.evaluate((el, corner) => {
+      const r = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(corner ? r.left + 2 : r.left + r.width / 2, corner ? r.top + 2 : r.top + r.height / 2);
+      return hit !== null && (hit === el || el.contains(hit));
+    }, corner);
+  expect(await shown(question.getByRole("heading", { name: "Make WebM with the slower engine?" }), true)).toBe(true);
+  for (const name of ["Export as MP4", "Make WebM anyway", "Cancel"]) {
+    expect(await shown(question.getByRole("button", { name, exact: true }), false), name).toBe(true);
+  }
   await mp4.click();
 
   const download = dialog.getByRole("link", { name: "Download" });
