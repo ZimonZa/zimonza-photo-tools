@@ -40,7 +40,7 @@ const alert = () => host.querySelector('[role="alert"]');
 describe("VideoDropzone", () => {
   test("a file that isn't a video says so instead of doing nothing; a video then opens and clears it", async () => {
     const openFile = vi.fn(async () => {});
-    useVideoStore.setState({ openFile });
+    await act(async () => useVideoStore.setState({ openFile }));
     await choose(new File(["hello"], "notes.txt", { type: "text/plain" }));
     expect(alert()?.textContent).toBe("That file isn't a video. Pick a video file.");
     expect(openFile).not.toHaveBeenCalled();
@@ -52,7 +52,7 @@ describe("VideoDropzone", () => {
 
   test("more than one file asks for one video", async () => {
     const openFile = vi.fn(async () => {});
-    useVideoStore.setState({ openFile });
+    await act(async () => useVideoStore.setState({ openFile }));
     await choose(
       new File([new Uint8Array(100)], "a.mp4", { type: "video/mp4" }),
       new File([new Uint8Array(100)], "b.mp4", { type: "video/mp4" })
