@@ -71,6 +71,24 @@ export function exportProgress(progress: number, attempt: number, targetSize: bo
   return { percent, pass: attempt === 1 ? pass : `${pass} — adjusting size` };
 }
 
+/** Below this share of a pass, or this long into it, a guess at the time left is too wild to show. */
+const TIME_LEFT_MIN_PROGRESS = 0.05;
+const TIME_LEFT_MIN_ELAPSED_MS = 2000;
+
+/**
+ * "About N s left" (or "About N min left") for the running pass, from how long it has run and how
+ * far it got, rounded up and never under 1 s. A target size can take more passes, so it says "in
+ * this pass". Null until the pass is 5% done and 2 s in, and once it reports 100%.
+ */
+export function timeLeft(progress: number, passElapsedMs: number, targetSize: boolean): string | null {
+  if (!Number.isFinite(progress) || !Number.isFinite(passElapsedMs)) return null;
+  if (progress < TIME_LEFT_MIN_PROGRESS || progress >= 1 || passElapsedMs < TIME_LEFT_MIN_ELAPSED_MS) return null;
+  // The epsilon keeps float noise (12.000000001) from rounding up a whole second.
+  const sec = Math.max(1, Math.ceil(((passElapsedMs / 1000) * (1 - progress)) / progress - 1e-9));
+  const amount = sec < 60 ? `${sec} s` : `${Math.ceil(sec / 60 - 1e-9)} min`;
+  return `About ${amount} left${targetSize ? " in this pass" : ""}`;
+}
+
 /** A message (and an optional hint) for a failed export; null when the user canceled. */
 export function describeExportError(e: unknown, targetBytes: number | null): { message: string; hint?: string } | null {
   if (e instanceof ExportCanceledError) return null;

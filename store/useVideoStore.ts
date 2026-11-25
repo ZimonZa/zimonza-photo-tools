@@ -2,7 +2,7 @@ import { create, type StoreApi, type UseBoundStore } from "zustand";
 import type { VideoInfo } from "@/lib/video/engines/types";
 import { isMobileDevice } from "@/lib/video/estimate";
 import { remapCrop } from "@/lib/video/frame";
-import { describeExportError, describeStatus, describeStudioStatus } from "@/lib/video/messages";
+import { describeExportError, describeStudioStatus } from "@/lib/video/messages";
 import { applyPreset, VIDEO_PRESETS, type PresetId } from "@/lib/video/presets";
 import { BASE_RECIPE, type EditRecipe } from "@/lib/video/recipe";
 import type { ExportOptions, ExportResult, ExportStatus, SamplePreview } from "@/lib/video/export";
@@ -35,6 +35,11 @@ export type ExportState =
       /** Which encoding pass is running (a target size can take several); 0 until encoding starts. */
       attempt: number;
       startedAt: number;
+      /**
+       * When the current pass started encoding: at its "encoding" status, or at its first progress
+       * after an engine download it waited for. The time-left guess divides this pass's time only.
+       */
+      passStartedAt: number;
       confirm: { reason: string; estimatedSec: number } | null;
     }
   | { kind: "done"; result: ExportResult; url: string }
@@ -402,9 +407,18 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
         stopSample();
         const previous = get().exportState;
         if (previous.kind === "done") deps.revoke(previous.url);
+        const startedAt = deps.now();
         set((s) => ({
           quality: { ...s.quality, status: s.quality.status === "working" ? "idle" : s.quality.status },
-          exportState: { kind: "running", statusText: "Starting…", progress: 0, attempt: 0, startedAt: deps.now(), confirm: null },
+          exportState: {
+            kind: "running",
+            statusText: "Starting…",
+            progress: 0,
+            attempt: 0,
+            startedAt,
+            passStartedAt: startedAt,
+            confirm: null,
+          },
         }));
         const run = ++exportRun;
         const controller = new AbortController();
@@ -412,18 +426,28 @@ export function createVideoStore(deps: VideoStoreDeps): UseBoundStore<StoreApi<V
         const patchRunning = (patch: Partial<Extract<ExportState, { kind: "running" }>>) =>
           set((s) => (s.exportState.kind === "running" ? { exportState: { ...s.exportState, ...patch } } : s));
         const targetBytes = recipe.size.kind === "target" ? recipe.size.bytes : null;
+        // A pass can wait for the backup engine's download; its first progress after that puts the
+        // pass's own line back and starts its clock.
+        let passText: string | null = null;
+        let downloading = false;
 
         try {
           const result = await deps.exportVideo(recipe, {
             signal: controller.signal,
-            onProgress: (progress) => run === exportRun && patchRunning({ progress }),
-            onStatus: (status) =>
-              run === exportRun &&
-              patchRunning(
-                status.phase === "encoding"
-                  ? { statusText: describeStatus(status), attempt: status.attempt, progress: 0 }
-                  : { statusText: describeStatus(status) }
-              ),
+            onProgress: (progress) => {
+              if (run !== exportRun) return;
+              if (!downloading) return patchRunning({ progress });
+              downloading = false;
+              patchRunning({ progress, passStartedAt: deps.now(), ...(passText ? { statusText: passText } : {}) });
+            },
+            onStatus: (status) => {
+              if (run !== exportRun) return;
+              const statusText = describeStudioStatus(status);
+              downloading = status.phase === "loading-engine";
+              if (status.phase !== "encoding") return patchRunning({ statusText });
+              passText = statusText;
+              patchRunning({ statusText, attempt: status.attempt, progress: 0, passStartedAt: deps.now() });
+            },
             confirmFallback: (confirm) =>
               new Promise<boolean>((resolve) => {
                 if (run !== exportRun) return resolve(false);

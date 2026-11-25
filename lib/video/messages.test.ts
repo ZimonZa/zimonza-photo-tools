@@ -7,7 +7,7 @@ import {
   TargetTooSmallError,
 } from "@/lib/video/errors";
 import { MAX_TARGET_ATTEMPTS } from "@/lib/video/bitrate";
-import { describeExportError, describeStatus, exportProgress } from "@/lib/video/messages";
+import { describeExportError, describeStatus, exportProgress, timeLeft } from "@/lib/video/messages";
 import { MB } from "@/lib/video/recipe";
 
 describe("exportProgress", () => {
@@ -27,6 +27,34 @@ describe("exportProgress", () => {
   test("no pass line for one-pass exports or before encoding starts", () => {
     expect(exportProgress(0.5, 1, false).pass).toBeNull();
     expect(exportProgress(0, 0, true).pass).toBeNull();
+  });
+});
+
+describe("timeLeft", () => {
+  test("from this pass's elapsed time and progress, rounded up", () => {
+    expect(timeLeft(0.5, 10_000, false)).toBe("About 10 s left");
+    expect(timeLeft(0.25, 4_000, false)).toBe("About 12 s left");
+    expect(timeLeft(0.2, 3_100, false)).toBe("About 13 s left");
+  });
+  test("a minute or more is said in whole minutes, rounded up", () => {
+    expect(timeLeft(0.1, 6_000, false)).toBe("About 54 s left");
+    expect(timeLeft(0.1, 7_000, false)).toBe("About 2 min left");
+    expect(timeLeft(0.05, 60_000, false)).toBe("About 19 min left");
+  });
+  test("a target size says it is for this pass, since more passes may follow", () => {
+    expect(timeLeft(0.5, 10_000, true)).toBe("About 10 s left in this pass");
+  });
+  test("no wild first guess: nothing before 5% or before 2 s into the pass", () => {
+    expect(timeLeft(0.049, 60_000, false)).toBeNull();
+    expect(timeLeft(0.5, 1_999, false)).toBeNull();
+    expect(timeLeft(0, 10_000, false)).toBeNull();
+  });
+  test("never zero or negative while running; nothing for nonsense", () => {
+    expect(timeLeft(0.9999, 10_000, false)).toBe("About 1 s left");
+    expect(timeLeft(1, 10_000, false)).toBeNull();
+    expect(timeLeft(1.2, 10_000, false)).toBeNull();
+    expect(timeLeft(Number.NaN, 10_000, false)).toBeNull();
+    expect(timeLeft(0.5, Number.NaN, false)).toBeNull();
   });
 });
 

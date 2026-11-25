@@ -124,6 +124,7 @@ const running = (confirm: { reason: string; estimatedSec: number } | null): Expo
   progress: 0.4,
   attempt: 1,
   startedAt: Date.now() - 5000,
+  passStartedAt: Date.now() - 5000,
   confirm,
 });
 
@@ -218,6 +219,33 @@ describe("ExportView", () => {
       expect(bar().getAttribute("aria-valuenow")).toBe("30");
       expect(host.textContent).toContain("Pass 2 of up to 4 — adjusting size");
       expect(bar().getAttribute("aria-valuetext")).toBe("Pass 2 of up to 4 — adjusting size, 30%");
+    });
+
+    test("time left: elapsed stays, the pass's own guess joins it once it means something", async () => {
+      const t0 = Date.now();
+      showExport({ ...running(null), progress: 0.5, attempt: 1, startedAt: t0 - 30_000, passStartedAt: t0 - 10_000 } as ExportState);
+      await render(createElement(ExportView, { onClose: () => {} }));
+      expect(host.textContent).toContain("Elapsed 0:30");
+      expect(host.textContent).toMatch(/About 1\d s left(?! in this pass)/);
+
+      // Too early in a pass (under 5% or 2 s): no guess at all.
+      await act(async () =>
+        useVideoStore.setState({ exportState: { ...running(null), progress: 0.04, passStartedAt: Date.now() - 10_000 } as ExportState })
+      );
+      expect(host.textContent).not.toContain("left");
+      await act(async () =>
+        useVideoStore.setState({ exportState: { ...running(null), progress: 0.5, passStartedAt: Date.now() - 1000 } as ExportState })
+      );
+      expect(host.textContent).not.toContain("left");
+
+      // A target size may run more passes, so the guess is for this one.
+      withSize({ kind: "target", bytes: 2_000_000 });
+      await act(async () =>
+        useVideoStore.setState({
+          exportState: { ...running(null), progress: 0.1, attempt: 2, passStartedAt: Date.now() - 10_000 } as ExportState,
+        })
+      );
+      expect(host.textContent).toContain("About 2 min left in this pass");
     });
 
     test("a one-pass export shows only the percent", async () => {

@@ -5,7 +5,7 @@ import { Download, Loader2, VolumeX, X } from "lucide-react";
 import { Button, FieldGroup, Segmented } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { MAX_TARGET_MB, MIN_TARGET_MB, mbText, parseMb } from "@/lib/video/target-mb";
-import { exportProgress } from "@/lib/video/messages";
+import { exportProgress, timeLeft } from "@/lib/video/messages";
 import { MB, type Container, type QualityLevel } from "@/lib/video/recipe";
 import { useVideoStore } from "@/store/useVideoStore";
 import { FallbackDialog } from "./fallback-dialog";
@@ -155,7 +155,8 @@ function SettingsStep({ onClose }: { onClose: () => void }) {
 /**
  * Progress while exporting. The bar shows the current pass and never reaches 100% before the file
  * is ready; a target size names its pass ("Pass 2 of up to 4 — adjusting size") as each one starts
- * the bar again.
+ * the bar again. Under the elapsed time, a guess at the time left in this pass once there is enough
+ * of it to go on.
  */
 function RunningStep({ onClose }: { onClose: () => void }) {
   const state = useVideoStore((s) => s.exportState);
@@ -170,6 +171,7 @@ function RunningStep({ onClose }: { onClose: () => void }) {
   }, []);
   if (state.kind !== "running") return null;
   const { percent, pass } = exportProgress(state.progress, state.attempt, targetSize);
+  const left = timeLeft(state.progress, tick - state.passStartedAt, targetSize);
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 text-sm">
@@ -189,7 +191,10 @@ function RunningStep({ onClose }: { onClose: () => void }) {
       </div>
       <div className="flex items-start justify-between gap-3 text-xs tabular-nums text-muted-foreground">
         <span>{pass ? `${pass} · ${percent}%` : `${percent}%`}</span>
-        <span className="shrink-0">Elapsed {clock(tick - state.startedAt)}</span>
+        <span className="flex shrink-0 flex-col items-end gap-0.5 text-right">
+          <span>Elapsed {clock(tick - state.startedAt)}</span>
+          {left && <span>{left}</span>}
+        </span>
       </div>
       {muted && <NoSoundBadge />}
       <Button

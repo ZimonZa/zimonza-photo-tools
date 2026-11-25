@@ -427,6 +427,44 @@ describe("export", () => {
     await p;
   });
 
+  test("each pass keeps its own start time; the backup engine's download doesn't count as encoding", async () => {
+    const run = deferred<ExportResult>();
+    let opts!: ExportOptions;
+    let now = 1000;
+    const { store } = await ready({
+      now: () => now,
+      exportVideo: (_r, o) => {
+        opts = o;
+        return run.promise;
+      },
+    });
+    const p = store.getState().startExport();
+    const running = () => {
+      const s = store.getState().exportState;
+      if (s.kind !== "running") throw new Error("not running");
+      return s;
+    };
+    expect(running()).toMatchObject({ startedAt: 1000, passStartedAt: 1000 });
+    now = 2000;
+    opts.onStatus?.({ phase: "encoding", engine: "ffmpeg", attempt: 1 });
+    expect(running()).toMatchObject({ startedAt: 1000, passStartedAt: 2000 });
+    // The pass waits for the engine's download: its clock starts with its first progress after it.
+    now = 3000;
+    opts.onStatus?.({ phase: "loading-engine", engine: "ffmpeg", loadedBytes: 16_000_000, totalBytes: 32_000_000 });
+    expect(running().statusText).toBe("Downloading the video engine… 16.0 of 32.0 MB");
+    now = 9000;
+    opts.onProgress?.(0.01);
+    expect(running()).toMatchObject({ passStartedAt: 9000, statusText: "Encoding with the backup engine — pass 1" });
+    now = 12_000;
+    opts.onProgress?.(0.3);
+    expect(running()).toMatchObject({ passStartedAt: 9000, progress: 0.3 });
+    now = 20_000;
+    opts.onStatus?.({ phase: "encoding", engine: "ffmpeg", attempt: 2 });
+    expect(running()).toMatchObject({ passStartedAt: 20_000, attempt: 2, progress: 0 });
+    run.resolve(result());
+    await p;
+  });
+
   test("confirmFallback opens the question; answerFallback(true) continues, (false) cancels back to idle", async () => {
     for (const answer of [true, false]) {
       const { store } = await ready({
