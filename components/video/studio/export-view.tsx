@@ -114,14 +114,14 @@ function SettingsStep({ onClose }: { onClose: () => void }) {
           </>
         ) : (
           plan && (
-            <p role="alert" className="leading-snug text-amber-500">
+            <p role="alert" className="leading-snug text-amber-700 dark:text-amber-500">
               {plan.message}
               {plan.hint && " " + plan.hint}
             </p>
           )
         )}
         {draftInvalid && (
-          <p role="alert" className="leading-snug text-amber-500">
+          <p role="alert" className="leading-snug text-amber-700 dark:text-amber-500">
             {TARGET_MESSAGE}
           </p>
         )}
@@ -248,7 +248,7 @@ function ErrorStep({ onClose }: { onClose: () => void }) {
   return (
     <div className="space-y-4">
       <div role="alert" className="space-y-1 text-sm">
-        <p className="text-amber-500">{state.message}</p>
+        <p className="text-amber-700 dark:text-amber-500">{state.message}</p>
         {state.hint && <p className="text-muted-foreground">{state.hint}</p>}
       </div>
       <Button

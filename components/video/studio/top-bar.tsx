@@ -8,13 +8,15 @@ import { VIDEO_PRESETS, type PresetId } from "@/lib/video/presets";
 import { useVideoStore } from "@/store/useVideoStore";
 import { QualitySwitch } from "./quality-switch";
 import { useExportPlan } from "./use-export-plan";
+import { useIsDesktop } from "./use-is-desktop";
 
 /**
- * The destination preset. "Form upload (under … MB)" first asks for the limit in a small field
- * (default the store's target, 10 MB) and applies on Apply or Enter. A hand edit anywhere turns
- * the store's preset to Custom, which this shows.
+ * The destination preset's state. "Form upload (under … MB)" first asks for the limit in a small
+ * field (default the store's target) and applies on Apply or Enter. A hand edit anywhere turns the
+ * store's preset to Custom, which the dropdown shows. The dropdown and the size field are two bar
+ * items, placed apart on phones (see `TopBar`).
  */
-function PresetPicker() {
+function usePresetPicker() {
   const presetId = useVideoStore((s) => s.presetId);
   const recipe = useVideoStore((s) => s.recipe);
   const targetMb = useVideoStore((s) => s.targetMb);
@@ -61,51 +63,65 @@ function PresetPicker() {
     setAsking(false);
   };
 
-  // Two header items: on phones the MB field takes its own row under the bar's first row.
+  return { presetId, asking, draft, setDraft, mb, options, pick, apply, dismiss };
+}
+
+type PresetPicker = ReturnType<typeof usePresetPicker>;
+
+function PresetSelect({ picker }: { picker: PresetPicker }) {
   return (
-    <>
-      <div className="order-2 w-28 min-w-0 shrink-0 lg:w-52 lg:shrink">
-        <SelectField<PresetId> ariaLabel="Preset" value={asking ? "form" : presetId} onChange={pick} options={options} />
-      </div>
-      {(asking || presetId === "form") && (
-        <form
-          className="order-4 flex w-full shrink-0 items-center justify-end gap-1.5 lg:order-3 lg:w-auto"
-          onSubmit={(e) => {
-            e.preventDefault();
-            apply();
-          }}
+    <div className="w-28 min-w-0 shrink-0 lg:w-52 lg:shrink">
+      <SelectField<PresetId>
+        ariaLabel="Preset"
+        value={picker.asking ? "form" : picker.presetId}
+        onChange={picker.pick}
+        options={picker.options}
+      />
+    </div>
+  );
+}
+
+/** Form upload's size field, while it is asked for or the preset is Form upload. Phones give it its own row. */
+function TargetMbForm({ picker }: { picker: PresetPicker }) {
+  const { asking, presetId, draft, setDraft, mb, apply, dismiss } = picker;
+  if (!asking && presetId !== "form") return null;
+  return (
+    <form
+      className="flex w-full shrink-0 items-center justify-end gap-1.5 lg:w-auto"
+      onSubmit={(e) => {
+        e.preventDefault();
+        apply();
+      }}
+    >
+      <span className="flex items-center rounded-xl border border-border bg-card/60 transition-all duration-200 focus-within:border-accent/60 focus-within:shadow-glow">
+        <input
+          type="text"
+          inputMode="decimal"
+          aria-label="Target size in MB"
+          aria-invalid={mb === null}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          className="w-14 bg-transparent py-2 pl-3 text-sm tabular-nums outline-none"
+        />
+        <span className="pr-3 text-xs font-medium text-muted-foreground">MB</span>
+      </span>
+      <button
+        type="submit"
+        disabled={mb === null}
+        className="rounded-xl bg-gradient-to-r from-accent to-accent2 px-3 py-2 text-sm font-medium text-accent-foreground transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        Apply
+      </button>
+      {asking && (
+        <button
+          type="button"
+          onClick={dismiss}
+          className="rounded-xl border border-border px-3 py-2 text-sm hover:bg-muted"
         >
-          <span className="flex items-center rounded-xl border border-border bg-card/60 transition-all duration-200 focus-within:border-accent/60 focus-within:shadow-glow">
-            <input
-              type="text"
-              inputMode="decimal"
-              aria-label="Target size in MB"
-              aria-invalid={mb === null}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              className="w-14 bg-transparent py-2 pl-3 text-sm tabular-nums outline-none"
-            />
-            <span className="pr-3 text-xs font-medium text-muted-foreground">MB</span>
-          </span>
-          <button
-            type="submit"
-            disabled={mb === null}
-            className="rounded-xl bg-gradient-to-r from-accent to-accent2 px-3 py-2 text-sm font-medium text-accent-foreground transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Apply
-          </button>
-          {asking && (
-            <button
-              type="button"
-              onClick={dismiss}
-              className="rounded-xl border border-border px-3 py-2 text-sm hover:bg-muted"
-            >
-              Cancel
-            </button>
-          )}
-        </form>
+          Cancel
+        </button>
       )}
-    </>
+    </form>
   );
 }
 
@@ -117,7 +133,7 @@ function FileName({ name }: { name: string }) {
   return (
     <span
       title={name}
-      className="order-1 line-clamp-2 min-w-0 flex-1 basis-0 break-all text-xs font-medium lg:block lg:max-w-[12rem] lg:flex-none lg:basis-auto lg:truncate lg:break-normal lg:text-sm lg:line-clamp-none"
+      className="line-clamp-2 min-w-0 flex-1 basis-0 break-all text-xs font-medium lg:block lg:max-w-[12rem] lg:flex-none lg:basis-auto lg:truncate lg:break-normal lg:text-sm lg:line-clamp-none"
     >
       {name}
     </span>
@@ -129,6 +145,9 @@ function FileName({ name }: { name: string }) {
  * and the Preview quality switch on the right (phones show the estimate under the timeline and the
  * switch next to the preview). The far right is the Export button. Phones keep all of it on one row
  * (the Form upload size field takes a second row while it shows).
+ *
+ * The DOM order is the order on screen, so Tab follows what the eye does: on computers the size
+ * field sits after the preset, on phones (its own second row) after Export. No CSS `order`.
  */
 export function TopBar({
   fileName,
@@ -144,6 +163,8 @@ export function TopBar({
   onExport: () => void;
 }) {
   const plan = useExportPlan();
+  const picker = usePresetPicker();
+  const desktop = useIsDesktop();
   // A target that's too small stays exportable: the export view explains it and holds the MB field
   // (the hint's fix), and keeps Start off until it works. Every other problem is fixed in the editor.
   const canOpen = plan !== null && (plan.ok || plan.targetTooSmall === true);
@@ -151,30 +172,36 @@ export function TopBar({
   return (
     <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-2 gap-y-2 border-b border-border bg-card/60 px-3 py-1.5 lg:col-span-3 lg:col-start-1 lg:row-start-1 lg:flex-nowrap lg:gap-x-3 lg:py-2">
       <FileName name={fileName} />
-      <PresetPicker />
+      <PresetSelect picker={picker} />
+      {desktop && <TargetMbForm picker={picker} />}
       <button
         type="button"
         onClick={onNewVideo}
         title="New video"
-        className="order-3 inline-flex w-11 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-border text-sm hover:bg-muted lg:order-4 lg:w-auto lg:justify-start lg:px-3 lg:py-1.5"
+        className="inline-flex w-11 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-border text-sm hover:bg-muted lg:w-auto lg:justify-start lg:px-3 lg:py-1.5"
       >
         <RotateCcw className="h-4 w-4" />
         <span className="sr-only lg:not-sr-only">New video</span>
       </button>
+      {desktop && (
+        <>
+          {estimate && <div className="hidden min-w-0 flex-1 justify-center px-2 lg:flex">{estimate}</div>}
+          <div className="hidden shrink-0 lg:ml-auto lg:block">
+            <QualitySwitch />
+          </div>
+        </>
+      )}
       <button
         type="button"
         onClick={onExport}
         disabled={!canOpen}
         title={problem ?? "Export"}
-        className="order-3 inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-gradient-to-r from-accent to-accent2 px-3 text-sm font-medium text-accent-foreground transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 lg:order-7 lg:py-1.5"
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-gradient-to-r from-accent to-accent2 px-3 text-sm font-medium text-accent-foreground transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 lg:py-1.5"
       >
         <Download className="h-4 w-4" />
         Export
       </button>
-      {estimate && <div className="order-5 hidden min-w-0 flex-1 justify-center px-2 lg:flex">{estimate}</div>}
-      <div className="order-6 hidden shrink-0 lg:ml-auto lg:block">
-        <QualitySwitch />
-      </div>
+      {!desktop && <TargetMbForm picker={picker} />}
     </header>
   );
 }

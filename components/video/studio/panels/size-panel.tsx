@@ -150,7 +150,7 @@ function CustomSize({ frame, picture, onFrame }: { frame: ExactFrame; picture: S
         <SideField label="Height" value={h} invalid={draft !== null && parseSide(h) === null} onChange={(t) => edit("h", t)} />
       </div>
       {draft !== null && (
-        <p role="alert" className="text-xs text-amber-500">
+        <p role="alert" className="text-xs text-amber-700 dark:text-amber-500">
           {customSizeError(w, h)}
         </p>
       )}

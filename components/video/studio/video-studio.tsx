@@ -54,7 +54,7 @@ export function VideoStudio() {
   if (load.kind === "error") {
     return (
       <div className="mx-auto max-w-4xl px-4 py-24 text-center" role="alert">
-        <p className="text-amber-500">{load.message}</p>
+        <p className="text-amber-700 dark:text-amber-500">{load.message}</p>
         <button type="button" onClick={reset} className="mt-4 rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-muted">
           New video
         </button>

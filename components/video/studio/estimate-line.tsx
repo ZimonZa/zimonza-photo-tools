@@ -20,11 +20,14 @@ export function EstimateLine({ className }: { className?: string }) {
     ? { ok: true as const, line: `≈ ${(plan.estimatedBytes / MB).toFixed(1)} MB · ${plan.width}×${plan.height} · ${FORMAT[recipe.container]}` }
     : { ok: false as const, line: plan.hint ? `${plan.message} ${plan.hint}` : plan.message };
   return (
+    // Polite live region: a screen reader hears it when the settings stop (or start) producing a file.
     <div
       data-testid="estimate"
+      aria-live="polite"
+      aria-atomic="true"
       className={cn("flex min-w-0 flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center text-sm", className)}
     >
-      <span className={cn("leading-snug", text.ok ? "font-medium tabular-nums" : "text-amber-500")}>{text.line}</span>
+      <span className={cn("leading-snug", text.ok ? "font-medium tabular-nums" : "text-amber-700 dark:text-amber-500")}>{text.line}</span>
       {recipe.muted && <NoSoundBadge />}
     </div>
   );

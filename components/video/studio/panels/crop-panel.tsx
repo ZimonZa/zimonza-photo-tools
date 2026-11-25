@@ -88,7 +88,7 @@ function FreeSize({ picture, current, onSet }: { picture: Size; current: Size; o
         />
       </div>
       {draft !== null && size === null && (
-        <p role="alert" className="text-xs text-amber-500">
+        <p role="alert" className="text-xs text-amber-700 dark:text-amber-500">
           Use whole numbers: width {MIN_FREE_SIDE}–{picture.width} px, height {MIN_FREE_SIDE}–{picture.height} px.
         </p>
       )}

@@ -55,7 +55,7 @@ export function SoundPanel() {
                   "flex min-h-14 items-center justify-center gap-2 rounded-xl border text-base font-semibold transition-all duration-200",
                   checked
                     ? o.muted
-                      ? "border-amber-500/60 bg-amber-500/10 text-amber-500"
+                      ? "border-amber-500/60 bg-amber-500/10 text-amber-700 dark:text-amber-500"
                       : "border-accent/60 bg-accent/10 text-accent shadow-glow"
                     : "border-border text-muted-foreground hover:border-border-strong hover:bg-muted"
                 )}
