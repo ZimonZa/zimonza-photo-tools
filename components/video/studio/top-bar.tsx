@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { Download, RotateCcw } from "lucide-react";
-import { SelectField } from "@/components/ui";
+import { SelectField, UnitField } from "@/components/ui";
 import { mbText, parseMb } from "@/lib/video/target-mb";
 import { VIDEO_PRESETS, type PresetId } from "@/lib/video/presets";
 import { useVideoStore } from "@/store/useVideoStore";
@@ -93,18 +93,7 @@ function TargetMbForm({ picker }: { picker: PresetPicker }) {
         apply();
       }}
     >
-      <span className="flex items-center rounded-xl border border-border bg-card/60 transition-all duration-200 focus-within:border-accent/60 focus-within:shadow-glow">
-        <input
-          type="text"
-          inputMode="decimal"
-          aria-label="Target size in MB"
-          aria-invalid={mb === null}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          className="w-14 bg-transparent py-2 pl-3 text-sm tabular-nums outline-none"
-        />
-        <span className="pr-3 text-xs font-medium text-muted-foreground">MB</span>
-      </span>
+      <UnitField ariaLabel="Target size in MB" unit="MB" compact value={draft} invalid={mb === null} onChange={setDraft} />
       <button
         type="submit"
         disabled={mb === null}

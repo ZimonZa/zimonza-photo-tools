@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Eraser } from "lucide-react";
-import { Button, FieldGroup, Slider } from "@/components/ui";
+import { Button, FieldGroup, Slider, UnitField } from "@/components/ui";
 import {
   CROP_ASPECTS,
   centredBox,
@@ -17,34 +17,6 @@ import type { Size } from "@/lib/video/geometry";
 import { cn } from "@/lib/utils";
 import { useVideoStore } from "@/store/useVideoStore";
 import { MIN_CROP_ZOOM, chipAspect, turnedPicture, useCropView } from "../crop-editor";
-
-function PxField({ label, value, invalid, onChange }: { label: string; value: string; invalid: boolean; onChange(text: string): void }) {
-  const id = useId();
-  return (
-    <div className="w-full min-w-0">
-      <label htmlFor={id} className="mb-1.5 block text-xs font-medium text-muted-foreground">
-        {label}
-      </label>
-      <span
-        className={cn(
-          "flex items-center rounded-xl border bg-card/60 transition-all duration-200 focus-within:border-accent/60 focus-within:shadow-glow",
-          invalid ? "border-amber-500/60" : "border-border"
-        )}
-      >
-        <input
-          id={id}
-          type="text"
-          inputMode="numeric"
-          aria-invalid={invalid}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-full min-w-0 bg-transparent px-3 py-2 text-sm tabular-nums outline-none"
-        />
-        <span className="pr-3 text-xs font-medium text-muted-foreground">px</span>
-      </span>
-    </div>
-  );
-}
 
 /**
  * Free: the crop's width × height in px of the turned picture. The fields show the current crop's
@@ -71,8 +43,10 @@ function FreeSize({ picture, current, onSet }: { picture: Size; current: Size; o
   return (
     <form onSubmit={submit} className="space-y-2">
       <div className="flex items-end gap-2">
-        <PxField
+        <UnitField
           label="Width"
+          unit="px"
+          inputMode="numeric"
           value={w}
           invalid={draft !== null && parseFreeSize(w, min, picture) === null}
           onChange={(t) => setDraft({ w: t, h })}
@@ -80,8 +54,10 @@ function FreeSize({ picture, current, onSet }: { picture: Size; current: Size; o
         <span aria-hidden className="pb-2 text-sm text-muted-foreground">
           ×
         </span>
-        <PxField
+        <UnitField
           label="Height"
+          unit="px"
+          inputMode="numeric"
           value={h}
           invalid={draft !== null && parseFreeSize(min, h, picture) === null}
           onChange={(t) => setDraft({ w, h: t })}

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /* -------------------------------- Button ------------------------------- */
@@ -122,6 +122,64 @@ export function NumberField({
         )}
       </span>
     </label>
+  );
+}
+
+/* ------------------------------- Unit field ---------------------------- */
+
+/**
+ * A number typed as text, with its unit after it ("px", "MB"). The caller parses and validates;
+ * `invalid` outlines it in amber. `label` shows above it; without one, give `ariaLabel`. `compact`
+ * is a short field for a few digits.
+ */
+export function UnitField({
+  label,
+  ariaLabel,
+  unit,
+  value,
+  onChange,
+  invalid = false,
+  inputMode = "decimal",
+  compact = false,
+}: {
+  label?: string;
+  ariaLabel?: string;
+  unit: string;
+  value: string;
+  onChange: (text: string) => void;
+  invalid?: boolean;
+  inputMode?: "numeric" | "decimal";
+  compact?: boolean;
+}) {
+  const id = useId();
+  const field = (
+    <span
+      className={cn(
+        "flex items-center rounded-xl border bg-card/60 transition-all duration-200 focus-within:border-accent/60 focus-within:shadow-glow",
+        invalid ? "border-amber-500/60" : "border-border"
+      )}
+    >
+      <input
+        id={id}
+        type="text"
+        inputMode={inputMode}
+        aria-label={label ? undefined : ariaLabel}
+        aria-invalid={invalid}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn("bg-transparent py-2 text-sm tabular-nums outline-none", compact ? "w-14 pl-3" : "w-full min-w-0 px-3")}
+      />
+      <span className="pr-3 text-xs font-medium text-muted-foreground">{unit}</span>
+    </span>
+  );
+  if (!label) return field;
+  return (
+    <div className="w-full min-w-0">
+      <label htmlFor={id} className="mb-1.5 block text-xs font-medium text-muted-foreground">
+        {label}
+      </label>
+      {field}
+    </div>
   );
 }
 

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Lock, LockOpen } from "lucide-react";
-import { FieldGroup, Segmented, Slider } from "@/components/ui";
+import { FieldGroup, Segmented, Slider, UnitField } from "@/components/ui";
 import type { VideoInfo } from "@/lib/video/engines/types";
 import { checkCustomSide, resolveFrame, type FitMode, type OutputFrame } from "@/lib/video/frame";
 import { displaySize, type Size } from "@/lib/video/geometry";
@@ -66,34 +66,6 @@ function sizeFor(info: VideoInfo, recipe: RecipeEdits, frame: OutputFrame): Size
   }
 }
 
-function SideField({ label, value, invalid, onChange }: { label: string; value: string; invalid: boolean; onChange(text: string): void }) {
-  const id = useId();
-  return (
-    <div className="w-full min-w-0">
-      <label htmlFor={id} className="mb-1.5 block text-xs font-medium text-muted-foreground">
-        {label}
-      </label>
-      <span
-        className={cn(
-          "flex items-center rounded-xl border bg-card/60 transition-all duration-200 focus-within:border-accent/60 focus-within:shadow-glow",
-          invalid ? "border-amber-500/60" : "border-border"
-        )}
-      >
-        <input
-          id={id}
-          type="text"
-          inputMode="numeric"
-          aria-invalid={invalid}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-full min-w-0 bg-transparent px-3 py-2 text-sm tabular-nums outline-none"
-        />
-        <span className="pr-3 text-xs font-medium text-muted-foreground">px</span>
-      </span>
-    </div>
-  );
-}
-
 /**
  * Width × height as typed, 16 to 4096 px a side. Locked, the other side follows the cropped
  * picture's shape. A size outside that stays in the fields with its message and never reaches the
@@ -133,7 +105,14 @@ function CustomSize({ frame, picture, onFrame }: { frame: ExactFrame; picture: S
   return (
     <div className="space-y-2">
       <div className="flex items-end gap-2">
-        <SideField label="Width" value={w} invalid={draft !== null && parseSide(w) === null} onChange={(t) => edit("w", t)} />
+        <UnitField
+          label="Width"
+          unit="px"
+          inputMode="numeric"
+          value={w}
+          invalid={draft !== null && parseSide(w) === null}
+          onChange={(t) => edit("w", t)}
+        />
         <button
           type="button"
           aria-label="Keep the picture's shape"
@@ -147,7 +126,14 @@ function CustomSize({ frame, picture, onFrame }: { frame: ExactFrame; picture: S
         >
           {locked ? <Lock className="h-4 w-4" /> : <LockOpen className="h-4 w-4" />}
         </button>
-        <SideField label="Height" value={h} invalid={draft !== null && parseSide(h) === null} onChange={(t) => edit("h", t)} />
+        <UnitField
+          label="Height"
+          unit="px"
+          inputMode="numeric"
+          value={h}
+          invalid={draft !== null && parseSide(h) === null}
+          onChange={(t) => edit("h", t)}
+        />
       </div>
       {draft !== null && (
         <p role="alert" className="text-xs text-amber-700 dark:text-amber-500">

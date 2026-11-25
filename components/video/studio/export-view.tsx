@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, Loader2, X } from "lucide-react";
-import { Button, FieldGroup, Segmented } from "@/components/ui";
+import { Button, FieldGroup, Segmented, UnitField } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { MAX_TARGET_MB, MIN_TARGET_MB, mbText, parseMb } from "@/lib/video/target-mb";
 import { exportProgress, timeLeft } from "@/lib/video/messages";
@@ -79,23 +79,7 @@ function SettingsStep({ onClose }: { onClose: () => void }) {
           />
         ) : (
           <div className="space-y-1.5">
-            <span
-              className={cn(
-                "flex items-center rounded-xl border bg-card/60 transition-all duration-200 focus-within:border-accent/60 focus-within:shadow-glow",
-                draftInvalid ? "border-amber-500/60" : "border-border"
-              )}
-            >
-              <input
-                type="text"
-                inputMode="decimal"
-                aria-label="Target size (MB)"
-                aria-invalid={draftInvalid}
-                value={draft}
-                onChange={(e) => setTarget(e.target.value)}
-                className="w-full min-w-0 bg-transparent px-3 py-2 text-sm tabular-nums outline-none"
-              />
-              <span className="pr-3 text-xs font-medium text-muted-foreground">MB</span>
-            </span>
+            <UnitField ariaLabel="Target size (MB)" unit="MB" value={draft} invalid={draftInvalid} onChange={setTarget} />
             <p className="text-xs text-muted-foreground">The file will never be bigger than this.</p>
           </div>
         )}
