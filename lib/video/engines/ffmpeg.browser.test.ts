@@ -31,6 +31,47 @@ describe("probeWithFfmpeg", () => {
   );
 });
 
+describe("one ffmpeg job at a time", () => {
+  test(
+    "two probes started together run one after the other, and each reads its own file",
+    async () => {
+      const a = await makeTestClip({ seconds: 1, width: 640, height: 360, audio: true });
+      const b = await makeTestClip({ seconds: 2, width: 320, height: 180, audio: false });
+      const [ia, ib] = await Promise.all([probeWithFfmpeg(a), probeWithFfmpeg(b)]);
+      expect(ia).toMatchObject({ width: 640, height: 360, hasAudio: true });
+      expect(ia.durationSec).toBeCloseTo(1, 1);
+      expect(ib).toMatchObject({ width: 320, height: 180, hasAudio: false });
+      expect(ib.durationSec).toBeCloseTo(2, 1);
+    },
+    TIMEOUT
+  );
+
+  test(
+    "a probe started during an encode waits for it; both succeed",
+    async () => {
+      const file = await makeTestClip({ seconds: 2, width: 640, height: 360, audio: true });
+      const other = await makeTestClip({ seconds: 1, width: 320, height: 180, audio: false });
+      const info = await probeWithFfmpeg(file);
+      const order: string[] = [];
+      const encoding = ffmpegEngine
+        .encode(job({ file, info, trim: null, plan: { width: 320, height: 180, videoBps: 300_000, audioBps: 96_000, steppedDown: false } }))
+        .then((out) => {
+          order.push("encode");
+          return out;
+        });
+      const probing = probeWithFfmpeg(other).then((i) => {
+        order.push("probe");
+        return i;
+      });
+      const [out, probed] = await Promise.all([encoding, probing]);
+      expect(order).toEqual(["encode", "probe"]);
+      expect((await inspectMp4(out)).videoCodec).toBe("avc");
+      expect(probed).toMatchObject({ width: 320, height: 180, hasAudio: false });
+    },
+    TIMEOUT
+  );
+});
+
 describe("ffmpegEngine.encode", () => {
   test(
     "trims and resizes into H.264 + AAC with moov before mdat",

@@ -1,5 +1,6 @@
 import type { FFFSType, FFmpeg, LogEventCallback } from "@ffmpeg/ffmpeg";
 import { buildFfmpegArgs, ffmpegAssetUrls, parseFfmpegProbe, parseFfmpegTime } from "@/lib/video/engines/ffmpeg-args";
+import { createJobQueue } from "@/lib/video/engines/job-queue";
 import type { EncodeJob, VideoEngine, VideoInfo } from "@/lib/video/engines/types";
 import { EngineUnsupportedError, ExportCanceledError } from "@/lib/video/errors";
 
@@ -12,19 +13,54 @@ const LOG_TAIL_LINES = 20;
 
 /** One shared ffmpeg instance; dropped (and rebuilt on next use) after a cancel terminates it. */
 let instance: Promise<FFmpeg> | null = null;
-/** Instances that have run a command (a probe or an encode); see the WebM rule in `encode`. */
+/** Instances that have run a command (a probe or an encode); see the WebM rule in `encodeNow`. */
 const usedInstances = new WeakSet<FFmpeg>();
 /**
- * The core's wasm as a blob URL: downloaded (and its progress reported) once per page, then reused
- * by every instance. Cleared only when the download itself fails, so the next use retries.
+ * Every probe and encode runs alone: they share one instance and its fixed MOUNT path (a second
+ * mount there fails), and one heavy job at a time is all a phone can take. The download runs
+ * outside the queue, so a caller waiting its turn still sees its progress.
+ */
+const exclusive = createJobQueue();
+/**
+ * The core's wasm as a blob URL: downloaded once per page, then reused by every instance. Cleared
+ * only when the download itself fails, so the next use retries.
  */
 let wasmBlobUrl: Promise<string> | null = null;
+/** While the download runs: who hears its progress, and the latest report (for late joiners). */
+let downloading = false;
+const downloadListeners = new Set<DownloadListener>();
+let lastDownload: [number, number | null] | null = null;
 
-function loadWasm(url: string, onProgress?: DownloadListener): Promise<string> {
-  wasmBlobUrl ??= downloadWithProgress(url, onProgress).catch((e) => {
-    wasmBlobUrl = null;
-    throw e;
-  });
+/** Start the one-time download, or join the one running; `onProgress` hears it either way. */
+function loadWasm(onProgress?: DownloadListener): Promise<string> {
+  if (onProgress && (!wasmBlobUrl || downloading)) {
+    downloadListeners.add(onProgress);
+    if (lastDownload) onProgress(...lastDownload);
+  }
+  if (!wasmBlobUrl) {
+    const url = new URL(ffmpegAssetUrls(BASE_PATH).wasmURL, location.href).href;
+    downloading = true;
+    const download = downloadWithProgress(url, (loaded, total) => {
+      lastDownload = [loaded, total];
+      downloadListeners.forEach((listener) => listener(loaded, total));
+    });
+    const settle = () => {
+      downloading = false;
+      downloadListeners.clear();
+      lastDownload = null;
+    };
+    wasmBlobUrl = download.then(
+      (blobUrl) => {
+        settle();
+        return blobUrl;
+      },
+      (e) => {
+        settle();
+        wasmBlobUrl = null;
+        throw e;
+      }
+    );
+  }
   return wasmBlobUrl;
 }
 
@@ -45,12 +81,13 @@ async function downloadWithProgress(url: string, onProgress?: DownloadListener):
   return URL.createObjectURL(new Blob(chunks as BlobPart[], { type: "application/wasm" }));
 }
 
-function getFFmpeg(onDownload?: DownloadListener): Promise<FFmpeg> {
+/** The shared instance; only called inside `exclusive`, after `loadWasm`. */
+function getFFmpeg(): Promise<FFmpeg> {
   instance ??= (async () => {
     const { FFmpeg } = await import("@ffmpeg/ffmpeg");
     const urls = ffmpegAssetUrls(BASE_PATH);
     const abs = (path: string) => new URL(path, location.href).href;
-    const wasmURL = await loadWasm(abs(urls.wasmURL), onDownload);
+    const wasmURL = await loadWasm();
     const ffmpeg = new FFmpeg();
     await ffmpeg.load({ coreURL: abs(urls.coreURL), wasmURL, classWorkerURL: abs(urls.classWorkerURL) });
     return ffmpeg;
@@ -78,9 +115,14 @@ async function withInput<T>(ffmpeg: FFmpeg, file: File, run: (path: string) => P
   }
 }
 
-/** Probe any container ffmpeg understands (AVI, WMV, FLV…). */
+/** Probe any container ffmpeg understands (AVI, WMV, FLV…). Waits for any other ffmpeg job to finish. */
 export async function probeWithFfmpeg(file: File, onEngineDownload?: DownloadListener): Promise<VideoInfo> {
-  const ffmpeg = await getFFmpeg(onEngineDownload);
+  await loadWasm(onEngineDownload);
+  return exclusive(() => probe(file));
+}
+
+async function probe(file: File): Promise<VideoInfo> {
+  const ffmpeg = await getFFmpeg();
   usedInstances.add(ffmpeg);
   const logs: string[] = [];
   const onLog: LogEventCallback = ({ message }) => logs.push(message);
@@ -96,7 +138,14 @@ export async function probeWithFfmpeg(file: File, onEngineDownload?: DownloadLis
   return { ...parsed, readableByMediabunny: false };
 }
 
+/** Encode once any other ffmpeg job has finished; aborting while it waits cancels it at once. */
 async function encode(job: EncodeJob): Promise<Blob> {
+  if (job.signal.aborted) throw new ExportCanceledError();
+  await loadWasm(job.onEngineDownload);
+  return exclusive(() => encodeNow(job), job.signal);
+}
+
+async function encodeNow(job: EncodeJob): Promise<Blob> {
   const { file, info, trim, plan, edits, container, signal, onProgress } = job;
   const OUT = container === "webm" ? "/out.webm" : "/out.mp4";
   if (signal.aborted) throw new ExportCanceledError();
@@ -112,7 +161,7 @@ async function encode(job: EncodeJob): Promise<Blob> {
       previous.terminate();
     }
   }
-  const ffmpeg = await getFFmpeg(job.onEngineDownload);
+  const ffmpeg = await getFFmpeg();
   if (signal.aborted) throw new ExportCanceledError();
   usedInstances.add(ffmpeg);
 
